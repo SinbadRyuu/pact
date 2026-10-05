@@ -13,7 +13,7 @@ async function main() {
     data: {
       name: "VTM",
       signupUrl: "https://vtm.pro/la5-com/global/WXb1zNt0",
-      minDepositAmount: 500,
+      minDepositAmount: 300,
       minDepositCurrency: "£",
       isActive: true,
       isDefault: true,

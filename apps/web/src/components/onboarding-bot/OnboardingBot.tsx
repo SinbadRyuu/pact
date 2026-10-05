@@ -98,6 +98,17 @@ export function OnboardingBot({ apiBaseUrl = "", theme, className }: OnboardingB
       <h2 className={styles.heading}>{state.heading}</h2>
       <p className={styles.body}>{state.body}</p>
 
+      {state.status === "AWAITING_BROKER_SIGNUP" && state.broker && (
+        <a
+          href={state.broker.signupUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={styles.linkButton}
+        >
+          Open {state.broker.name} signup page
+        </a>
+      )}
+
       {state.showUploadField ? (
         <form onSubmit={handleUploadSubmit}>
           <div className={styles.uploadField}>

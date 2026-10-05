@@ -31,9 +31,9 @@ export const STEP_CONTENT: Record<OnboardingStatus, StepContent> = {
     heading: "Create your broker account",
     body: (ctx) =>
       ctx.broker
-        ? `Use this link to sign up with our partner broker, ${ctx.broker.name}:\n${ctx.broker.signupUrl}\n\nOpen it, create your account, then come back here and press Next.`
+        ? `Tap the button below to open ${ctx.broker.name}'s signup page in a new tab. Create your account, then come back here and press Next.`
         : "A broker link will appear here once one is configured.",
-    primaryLabel: "I've opened the link",
+    primaryLabel: "I've created my account",
     showUploadField: false,
   },
   ACCOUNT_CREATED: {
