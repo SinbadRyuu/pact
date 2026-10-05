@@ -1,0 +1,163 @@
+/*
+ * Scoped via CSS Modules — Next.js hashes these class names at build time,
+ * so none of this can collide with or be overridden by a host site's global
+ * CSS. Every rule here is also scoped under .root so nothing escapes it.
+ */
+
+.root {
+  box-sizing: border-box;
+  max-width: 480px;
+  width: 100%;
+  margin: 0;
+  padding: 24px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: var(--pact-bg);
+  color: var(--pact-text);
+  border-radius: var(--pact-radius);
+  font-family: var(--pact-font);
+  line-height: 1.5;
+}
+
+.root * {
+  box-sizing: border-box;
+}
+
+.topBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.progressDots {
+  display: flex;
+  gap: 6px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.dotActive {
+  background: var(--pact-accent);
+}
+
+.helpButton {
+  background: none;
+  border: none;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.helpButton:hover {
+  color: var(--pact-accent);
+}
+
+.heading {
+  font-size: 20px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.body {
+  font-size: 15px;
+  white-space: pre-wrap;
+  margin: 0 0 20px;
+  color: var(--pact-text);
+}
+
+.helpPanel {
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.errorBanner {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+.uploadField {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.uploadField label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.uploadField input[type="number"],
+.uploadField input[type="file"] {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  width: 100%;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.primaryButton {
+  flex: 1 1 auto;
+  background: var(--pact-accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.primaryButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  background: transparent;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  color: var(--pact-text);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.secondaryButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.restartButton {
+  composes: secondaryButton;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.loadingState {
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: rgba(0, 0, 0, 0.5);
+}
