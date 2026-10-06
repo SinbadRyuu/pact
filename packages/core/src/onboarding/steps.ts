@@ -39,17 +39,17 @@ export const STEP_CONTENT: Record<OnboardingStatus, StepContent> = {
     heading: "Create your broker account",
     body: (ctx) =>
       ctx.broker
-        ? `Tap the button below to open ${ctx.broker.name}'s signup page in a new tab. Create your account, then come back here and press Next.`
+        ? `Tap the button below to open ${ctx.broker.name}'s signup page in a new tab. This is what account setup looks like — create your account, then come back here and press Next.`
         : "A broker link will appear here once one is configured.",
     primaryLabel: "I've created my account",
     showUploadField: false,
+    images: [{ src: "/onboarding-guides/account-setup-form.jpg", alt: "Broker account setup form" }],
   },
   ACCOUNT_CREATED: {
     heading: "Confirm your account",
-    body: () => "This is what account setup looks like. Once you've finished creating your broker account, press Next to continue to identity verification (KYC).",
+    body: () => "Once you've finished creating your broker account, press Next to continue to identity verification (KYC).",
     primaryLabel: "Next",
     showUploadField: false,
-    images: [{ src: "/onboarding-guides/account-setup-form.jpg", alt: "Broker account setup form" }],
   },
   KYC_PENDING: {
     heading: "Verify your identity (KYC)",
