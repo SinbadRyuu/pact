@@ -50,6 +50,7 @@ export const STEP_CONTENT: Record<OnboardingStatus, StepContent> = {
     body: () => "Once you've finished creating your broker account, press Next to continue to identity verification (KYC).",
     primaryLabel: "Next",
     showUploadField: false,
+    images: [{ src: "/onboarding-guides/kyc-step2-level2.jpg", alt: "Level 2 identity verification" }],
   },
   KYC_PENDING: {
     heading: "Verify your identity (KYC)",
