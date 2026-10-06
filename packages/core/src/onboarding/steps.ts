@@ -11,11 +11,19 @@ export interface StepContext {
   rejectionReason: string | null;
 }
 
+export interface StepGuideImage {
+  /** Path under /public, e.g. "/onboarding-guides/kyc-level2.jpg" */
+  src: string;
+  alt: string;
+}
+
 export interface StepContent {
   heading: string;
   body: (ctx: StepContext) => string;
   primaryLabel: string;
   showUploadField: boolean;
+  /** Optional walkthrough screenshots shown under the body text, in order. */
+  images?: StepGuideImage[];
 }
 
 export const STEP_CONTENT: Record<OnboardingStatus, StepContent> = {
@@ -38,17 +46,25 @@ export const STEP_CONTENT: Record<OnboardingStatus, StepContent> = {
   },
   ACCOUNT_CREATED: {
     heading: "Confirm your account",
-    body: () => "Once you've finished creating your broker account, press Next to continue to identity verification (KYC).",
+    body: () => "This is what account setup looks like. Once you've finished creating your broker account, press Next to continue to identity verification (KYC).",
     primaryLabel: "Next",
     showUploadField: false,
+    images: [{ src: "/onboarding-guides/account-setup-form.jpg", alt: "Broker account setup form" }],
   },
   KYC_PENDING: {
     heading: "Verify your identity (KYC)",
     body: () =>
       "Complete the identity verification (KYC) steps inside your broker account — this usually means uploading an ID " +
-      "document and confirming your address. Once it's done (or submitted for review), press Next.",
+      "document and confirming your address. Follow the pictures below if you're not sure where to go. Once it's done " +
+      "(or submitted for review), press Next.",
     primaryLabel: "KYC done",
     showUploadField: false,
+    images: [
+      { src: "/onboarding-guides/kyc-step1-navigate.jpg", alt: "Step 1: open your profile" },
+      { src: "/onboarding-guides/kyc-step2-level2.jpg", alt: "Step 2: start Level 2 identity verification" },
+      { src: "/onboarding-guides/kyc-step3-upload-passport.jpg", alt: "Step 3: upload your passport" },
+      { src: "/onboarding-guides/kyc-step4-level3.jpg", alt: "Step 4: start Level 3 residency verification" },
+    ],
   },
   KYC_COMPLETE: {
     heading: "Make your first deposit",

@@ -71,6 +71,21 @@
   color: var(--pact-text);
 }
 
+.guideImages {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.guideImage {
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  display: block;
+}
+
 .helpPanel {
   background: rgba(0, 0, 0, 0.04);
   border-radius: 8px;

@@ -98,6 +98,15 @@ export function OnboardingBot({ apiBaseUrl = "", theme, className }: OnboardingB
       <h2 className={styles.heading}>{state.heading}</h2>
       <p className={styles.body}>{state.body}</p>
 
+      {state.images.length > 0 && (
+        <div className={styles.guideImages}>
+          {state.images.map((img) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img key={img.src} src={img.src} alt={img.alt} className={styles.guideImage} />
+          ))}
+        </div>
+      )}
+
       {state.status === "AWAITING_BROKER_SIGNUP" && state.broker && (
         <a
           href={state.broker.signupUrl}

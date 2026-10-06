@@ -30,6 +30,7 @@ export function serializeOnboardingState(session: SessionWithBroker) {
     body: content.body({ broker, rejectionReason: session.rejectionReason }),
     primaryLabel: content.primaryLabel,
     showUploadField: content.showUploadField,
+    images: content.images ?? [],
     canGoNext: canGoNext(session.status),
     canGoBack: canGoBack(session.status),
     canRestart: canRestart(session.status),
