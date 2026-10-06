@@ -65,6 +65,7 @@ export const STEP_CONTENT: Record<OnboardingStatus, StepContent> = {
       { src: "/onboarding-guides/kyc-step2-level2.jpg", alt: "Step 2: start Level 2 identity verification" },
       { src: "/onboarding-guides/kyc-step3-upload-passport.jpg", alt: "Step 3: upload your passport" },
       { src: "/onboarding-guides/kyc-step4-level3.jpg", alt: "Step 4: start Level 3 residency verification" },
+      { src: "/onboarding-guides/kyc-step5-bank-statement.jpg", alt: "Step 5: don't have a proof of address? Download a bank statement and upload it" },
     ],
   },
   KYC_COMPLETE: {
