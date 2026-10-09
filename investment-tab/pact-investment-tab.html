@@ -1,0 +1,1269 @@
+<!--
+  ===================================================================
+  PACT — INVESTMENT TAB  (self-contained, copy & paste)
+  ===================================================================
+  HOW TO USE
+  1. Copy EVERYTHING in this file.
+  2. Paste it into an "HTML / Embed / Custom code" block on the page
+     where the Investment tab should live (Wix, Squarespace, WordPress,
+     Webflow, Shopify, or plain HTML all work).
+  3. To change videos, the accountant, currency, etc. edit the
+     CONFIG section near the bottom of this file (search for "CONFIG").
+
+  Everything is scoped inside <div id="pact-invest"> so it will not
+  change the styling of the rest of the website. No external libraries,
+  no tracking, no cookies — it only remembers that the visitor accepted
+  the disclaimer (in their own browser).
+  ===================================================================
+-->
+<style>
+#pact-invest{
+  --pi-bg:#0d0a15;
+  --pi-surface:#161125;
+  --pi-surface-2:#1e1833;
+  --pi-border:#2d2547;
+  --pi-text:#eeeaf7;
+  --pi-muted:#a69fc0;
+  --pi-accent:#8b5cf6;
+  --pi-accent-2:#a78bfa;
+  --pi-accent-soft:rgba(139,92,246,.16);
+  --pi-green:#34d399;
+  --pi-green-soft:rgba(52,211,153,.18);
+  --pi-red:#f87171;
+  --pi-amber:#fbbf24;
+  --pi-radius:14px;
+  box-sizing:border-box;
+  background:var(--pi-bg);
+  color:var(--pi-text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  font-size:16px;
+  line-height:1.6;
+  text-align:left;
+  padding:24px 16px 40px;
+  border-radius:var(--pi-radius);
+  width:100%;
+  max-width:100%;
+  overflow-x:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+#pact-invest *,#pact-invest *::before,#pact-invest *::after{box-sizing:border-box}
+/* reset so the host website's CSS can't leak in */
+#pact-invest *{margin:0;padding:0;font-family:inherit !important;color:inherit;text-transform:none;letter-spacing:normal;text-shadow:none;float:none;max-height:none}
+#pact-invest{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif !important}
+#pact-invest ul{list-style:disc}
+#pact-invest .pi-wrap{max-width:1120px;margin:0 auto}
+#pact-invest h1,#pact-invest h2,#pact-invest h3,#pact-invest h4{color:var(--pi-text);font-family:inherit;line-height:1.25;margin:0 0 .5em;padding:0;letter-spacing:-.01em;text-transform:none}
+#pact-invest h1{font-size:clamp(1.6rem,4vw,2.3rem);font-weight:800}
+#pact-invest h2{font-size:clamp(1.3rem,3vw,1.7rem);font-weight:750}
+#pact-invest h3{font-size:1.15rem;font-weight:700}
+#pact-invest h4{font-size:1rem;font-weight:700}
+#pact-invest p{margin:0 0 1em;color:var(--pi-text)}
+#pact-invest ul,#pact-invest ol{margin:0 0 1em;padding-left:1.25em}
+#pact-invest li{margin:.25em 0}
+#pact-invest a{color:var(--pi-accent-2);text-decoration:underline;text-underline-offset:2px}
+#pact-invest strong{color:#fff;font-weight:700}
+#pact-invest .pi-muted{color:var(--pi-muted)}
+#pact-invest .pi-small{font-size:.875rem}
+#pact-invest .pi-eyebrow{display:inline-block;font-size:.75rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--pi-accent-2);margin-bottom:.5em}
+#pact-invest .pi-hidden{display:none !important}
+
+/* buttons */
+#pact-invest .pi-btn{appearance:none;-webkit-appearance:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;font:inherit;font-weight:700;font-size:.95rem;line-height:1.2;padding:12px 20px;border-radius:10px;border:1px solid var(--pi-accent);background:var(--pi-accent);color:#fff;cursor:pointer;text-decoration:none;transition:background .15s,opacity .15s,transform .05s;margin:0;min-height:44px}
+#pact-invest .pi-btn:hover{background:#7c4ae8}
+#pact-invest .pi-btn:active{transform:translateY(1px)}
+#pact-invest .pi-btn:disabled{opacity:.45;cursor:not-allowed}
+#pact-invest .pi-btn-ghost{background:transparent;color:var(--pi-text);border-color:var(--pi-border)}
+#pact-invest .pi-btn-ghost:hover{background:var(--pi-surface-2)}
+#pact-invest .pi-btn:focus-visible,#pact-invest .pi-tab:focus-visible,#pact-invest input:focus-visible,#pact-invest select:focus-visible,#pact-invest summary:focus-visible{outline:2px solid var(--pi-accent-2);outline-offset:2px}
+
+/* cards */
+#pact-invest .pi-card{background:var(--pi-surface);border:1px solid var(--pi-border);border-radius:var(--pi-radius);padding:22px}
+#pact-invest .pi-section{margin-top:36px}
+#pact-invest .pi-grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+#pact-invest .pi-grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+@media (max-width:860px){#pact-invest .pi-grid-2,#pact-invest .pi-grid-3{grid-template-columns:1fr}}
+
+/* disclaimer gate */
+#pact-invest .pi-gate{max-width:640px;margin:20px auto}
+#pact-invest .pi-gate ul{color:var(--pi-muted)}
+#pact-invest .pi-check{display:flex;gap:12px;align-items:flex-start;margin:18px 0;cursor:pointer;font-weight:600}
+#pact-invest .pi-check input{width:22px;height:22px;margin:2px 0 0;flex:none;accent-color:var(--pi-accent);cursor:pointer}
+
+/* tabs */
+#pact-invest .pi-tabs{display:flex;gap:6px;overflow-x:auto;padding:6px;margin:0 0 24px;background:var(--pi-surface);border:1px solid var(--pi-border);border-radius:12px;scrollbar-width:thin;-webkit-overflow-scrolling:touch;position:relative}
+#pact-invest .pi-tab{appearance:none;-webkit-appearance:none;flex:none;font:inherit;font-size:.9rem;font-weight:600;color:var(--pi-muted);background:transparent;border:0;border-radius:8px;padding:10px 14px;cursor:pointer;white-space:nowrap;margin:0;min-height:40px;line-height:1.2}
+#pact-invest .pi-tab:hover{color:var(--pi-text);background:var(--pi-surface-2)}
+#pact-invest .pi-tab[aria-selected="true"]{color:#fff;background:var(--pi-accent)}
+
+/* hero + video */
+#pact-invest .pi-hero{display:grid;grid-template-columns:1.1fr 1fr;gap:24px;align-items:center}
+@media (max-width:860px){#pact-invest .pi-hero{grid-template-columns:1fr}}
+#pact-invest .pi-video{position:relative;width:100%;aspect-ratio:16/9;border-radius:12px;overflow:hidden;background:var(--pi-surface-2);border:1px solid var(--pi-border)}
+#pact-invest .pi-video iframe,#pact-invest .pi-video video{position:absolute;inset:0;width:100%;height:100%;border:0;display:block}
+#pact-invest .pi-video-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;color:var(--pi-muted);font-weight:600;text-align:center;padding:16px}
+#pact-invest .pi-play{width:56px;height:56px;border-radius:50%;background:var(--pi-accent-soft);display:flex;align-items:center;justify-content:center}
+#pact-invest .pi-play::after{content:"";border-left:16px solid var(--pi-accent-2);border-top:10px solid transparent;border-bottom:10px solid transparent;margin-left:4px}
+#pact-invest .pi-btn-row{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+
+/* modules */
+#pact-invest .pi-modules{display:grid;gap:10px}
+#pact-invest details.pi-module{background:var(--pi-surface);border:1px solid var(--pi-border);border-radius:12px;overflow:hidden}
+#pact-invest details.pi-module[open]{border-color:var(--pi-accent)}
+#pact-invest .pi-module summary{list-style:none;display:flex;align-items:center;gap:14px;padding:16px 18px;cursor:pointer;font-weight:700}
+#pact-invest .pi-module summary::-webkit-details-marker{display:none}
+#pact-invest .pi-num{flex:none;width:34px;height:34px;border-radius:50%;background:var(--pi-accent-soft);color:var(--pi-accent-2);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.95rem}
+#pact-invest .pi-module summary .pi-chev{margin-left:auto;transition:transform .2s;color:var(--pi-muted)}
+#pact-invest details[open] .pi-chev{transform:rotate(90deg)}
+#pact-invest .pi-module-body{padding:0 18px 18px 66px;color:var(--pi-text)}
+@media (max-width:560px){#pact-invest .pi-module-body{padding:0 16px 16px}}
+
+/* forms */
+#pact-invest .pi-form{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+#pact-invest .pi-form .pi-full{grid-column:1/-1}
+@media (max-width:480px){#pact-invest .pi-form{grid-template-columns:1fr}}
+#pact-invest label.pi-field{display:flex;flex-direction:column;gap:6px;font-size:.85rem;font-weight:600;color:var(--pi-muted);margin:0}
+#pact-invest .pi-input{display:flex;align-items:center;background:var(--pi-bg);border:1px solid var(--pi-border);border-radius:10px;overflow:hidden}
+#pact-invest .pi-input:focus-within{border-color:var(--pi-accent)}
+#pact-invest .pi-input span{padding:0 0 0 12px;color:var(--pi-muted);font-weight:600}
+#pact-invest .pi-input span.pi-suffix{padding:0 12px 0 0}
+#pact-invest input[type="number"],#pact-invest select{appearance:none;-webkit-appearance:none;width:100%;min-width:0;font:inherit;font-size:16px;color:var(--pi-text);background:transparent;border:0;padding:11px 12px;margin:0;height:auto;box-shadow:none;outline:none;border-radius:0;line-height:1.3}
+#pact-invest select{background:var(--pi-bg);border:1px solid var(--pi-border);border-radius:10px;cursor:pointer;background-image:linear-gradient(45deg,transparent 50%,var(--pi-muted) 50%),linear-gradient(135deg,var(--pi-muted) 50%,transparent 50%);background-position:calc(100% - 18px) 50%,calc(100% - 13px) 50%;background-size:5px 5px;background-repeat:no-repeat;padding-right:32px}
+#pact-invest select:focus{border-color:var(--pi-accent)}
+#pact-invest select option{background:var(--pi-surface);color:var(--pi-text)}
+#pact-invest input[type="number"]::-webkit-inner-spin-button,#pact-invest input[type="number"]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+#pact-invest input[type="number"]{-moz-appearance:textfield}
+
+/* calculator layout */
+#pact-invest .pi-calc{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:20px;align-items:start}
+@media (max-width:900px){#pact-invest .pi-calc{grid-template-columns:1fr}}
+#pact-invest .pi-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+@media (max-width:560px){#pact-invest .pi-stats{grid-template-columns:1fr}}
+#pact-invest .pi-stat{background:var(--pi-surface-2);border:1px solid var(--pi-border);border-radius:10px;padding:12px 14px;min-width:0}
+#pact-invest .pi-stat-label{font-size:.75rem;color:var(--pi-muted);font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+#pact-invest .pi-stat-value{font-size:1.3rem;font-weight:800;color:#fff;overflow-wrap:anywhere;line-height:1.3}
+#pact-invest .pi-stat-value.pi-pos{color:var(--pi-green)}
+#pact-invest .pi-stat-value.pi-neg{color:var(--pi-red)}
+#pact-invest .pi-chart{position:relative;width:100%}
+#pact-invest .pi-chart svg{display:block;width:100%;height:auto;overflow:visible;touch-action:pan-y}
+#pact-invest .pi-chart text{font-family:inherit;font-size:12px;fill:var(--pi-muted)}
+#pact-invest .pi-tip{position:absolute;top:8px;pointer-events:none;background:#0b0813;border:1px solid var(--pi-border);border-radius:8px;padding:8px 10px;font-size:.8rem;line-height:1.45;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.4);z-index:2}
+#pact-invest .pi-legend{display:flex;flex-wrap:wrap;gap:16px;font-size:.8rem;color:var(--pi-muted);margin-top:8px}
+#pact-invest .pi-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+#pact-invest .pi-note{border-left:3px solid var(--pi-accent);background:var(--pi-accent-soft);padding:12px 14px;border-radius:0 10px 10px 0;margin:14px 0 0;font-size:.92rem}
+#pact-invest .pi-note.pi-good{border-color:var(--pi-green);background:var(--pi-green-soft)}
+#pact-invest .pi-note.pi-bad{border-color:var(--pi-red);background:rgba(248,113,113,.14)}
+#pact-invest .pi-note.pi-warn{border-color:var(--pi-amber);background:rgba(251,191,36,.12)}
+#pact-invest .pi-note p:last-child{margin-bottom:0}
+
+/* income bars */
+#pact-invest .pi-bar{height:14px;border-radius:7px;background:var(--pi-surface-2);overflow:hidden;margin:6px 0 2px}
+#pact-invest .pi-bar > div{height:100%;border-radius:7px;transition:width .25s}
+#pact-invest .pi-split-row{display:flex;justify-content:space-between;gap:10px;font-size:.88rem;margin-top:10px}
+
+/* topic pages */
+#pact-invest .pi-topic-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:6px}
+#pact-invest .pi-pill{display:inline-block;font-size:.72rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 10px;border-radius:999px;background:var(--pi-accent-soft);color:var(--pi-accent-2)}
+#pact-invest .pi-pill.pi-risk-low{background:var(--pi-green-soft);color:var(--pi-green)}
+#pact-invest .pi-pill.pi-risk-med{background:rgba(251,191,36,.14);color:var(--pi-amber)}
+#pact-invest .pi-pill.pi-risk-high{background:rgba(248,113,113,.14);color:var(--pi-red)}
+#pact-invest .pi-experience{margin-top:20px;background:linear-gradient(135deg,var(--pi-accent-soft),transparent);border:1px solid var(--pi-accent);border-radius:var(--pi-radius);padding:20px}
+#pact-invest .pi-experience-text{white-space:pre-line;margin:0}
+#pact-invest .pi-topic-video{margin:18px 0}
+#pact-invest .pi-track{margin-top:20px;border:1px solid var(--pi-accent);border-radius:var(--pi-radius);padding:18px 20px;background:linear-gradient(135deg,var(--pi-accent-soft),transparent)}
+#pact-invest .pi-track-text{font-size:1.05rem;font-weight:700;margin:0 0 6px;white-space:pre-line}
+
+/* footer */
+#pact-invest .pi-footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--pi-border);font-size:.8rem;color:var(--pi-muted)}
+#pact-invest .pi-footer p{color:var(--pi-muted);margin:0 0 .5em}
+#pact-invest .pi-linkbtn{appearance:none;background:none;border:0;padding:0;margin:0;font:inherit;color:var(--pi-accent-2);text-decoration:underline;cursor:pointer}
+</style>
+
+<div id="pact-invest">
+<div class="pi-wrap">
+
+  <!-- ============ DISCLAIMER GATE ============ -->
+  <div class="pi-gate pi-card" data-pi="gate">
+    <span class="pi-eyebrow">Before you start</span>
+    <h2>Important: please read &amp; agree</h2>
+    <p>Everything in this Investment section is for <strong>education and information only</strong>. Nothing here is financial, investment, tax or legal advice, and nothing here is a recommendation to buy or sell anything.</p>
+    <ul>
+      <li>All investing involves risk. The value of investments can go down as well as up and you may get back less than you put in — or lose everything.</li>
+      <li>Past performance is not a reliable indicator of future results.</li>
+      <li>Calculators show illustrations only, based on the numbers you type in. Real returns are not guaranteed.</li>
+      <li>Trading, crypto and other high-risk assets can lose money very quickly. Only use money you can afford to lose.</li>
+      <li>Your decisions are your own. If you are unsure, speak to a regulated, independent financial adviser.</li>
+    </ul>
+    <label class="pi-check">
+      <input type="checkbox" data-pi="gate-check">
+      <span>I understand that nothing in this section is financial advice, and that I am responsible for my own financial decisions.</span>
+    </label>
+    <button type="button" class="pi-btn" data-pi="gate-accept" disabled>I agree — let me in</button>
+  </div>
+
+  <!-- ============ MAIN APP (shown after agreeing) ============ -->
+  <div class="pi-hidden" data-pi="app">
+
+    <nav class="pi-tabs" role="tablist" aria-label="Investment sections" data-pi="tabs">
+      <button type="button" class="pi-tab" role="tab" data-tab="home" aria-selected="true">Get Started</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="calculators" aria-selected="false">Calculators</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="trading" aria-selected="false">Trading</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="metals" aria-selected="false">Gold / Silver / Copper</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="stocks" aria-selected="false">Stocks</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="crypto" aria-selected="false">Crypto</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="collectibles" aria-selected="false">Collectibles</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="property" aria-selected="false">Property</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="crashes" aria-selected="false">Market Crashes</button>
+      <button type="button" class="pi-tab" role="tab" data-tab="taxes" aria-selected="false">Taxes</button>
+    </nav>
+
+    <!-- ========== HOME / GET STARTED ========== -->
+    <section role="tabpanel" data-panel="home">
+      <div class="pi-hero">
+        <div>
+          <span class="pi-eyebrow">Investment</span>
+          <h1>Build wealth step by step</h1>
+          <p class="pi-muted">Start with the intro video, work through the 7 Get Started modules, then use the calculators to see whether you're on track. When you're ready, explore each investment area in the tabs above.</p>
+          <div class="pi-btn-row">
+            <button type="button" class="pi-btn" data-goto="calculators">Open the calculators</button>
+            <button type="button" class="pi-btn pi-btn-ghost" data-scroll="modules">Get Started modules</button>
+          </div>
+        </div>
+        <div class="pi-video" data-video="intro"></div>
+      </div>
+
+      <div class="pi-track pi-hidden" data-pi="track">
+        <p class="pi-track-text" data-pi="track-text"></p>
+        <p class="pi-small pi-muted" style="margin:0">Past performance is not a reliable indicator of future results. Personal results are not typical and are not a promise of what you will achieve.</p>
+      </div>
+
+      <div class="pi-section" data-anchor="modules">
+        <span class="pi-eyebrow">Get Started</span>
+        <h2>The 7 foundations</h2>
+        <p class="pi-muted">Go through these in order. Each one builds on the last.</p>
+        <div class="pi-modules">
+
+          <details class="pi-module">
+            <summary><span class="pi-num">1</span>Your outgoings vs your income<span class="pi-chev">&#9656;</span></summary>
+            <div class="pi-module-body">
+              <p>You can't invest money you don't have. Step one is knowing exactly what comes in and what goes out every month.</p>
+              <ul>
+                <li>Write down your take-home pay (after tax) and any other income.</li>
+                <li>List every outgoing: rent/mortgage, bills, food, transport, debt, subscriptions, going out.</li>
+                <li>Go through 2–3 months of bank statements — most people underestimate their spending.</li>
+                <li>Whatever is left over is the money that can build your future.</li>
+              </ul>
+              <button type="button" class="pi-btn pi-btn-ghost" data-goto="calculators" data-scroll="income">Use the income calculator</button>
+            </div>
+          </details>
+
+          <details class="pi-module">
+            <summary><span class="pi-num">2</span>Saving &amp; habits<span class="pi-chev">&#9656;</span></summary>
+            <div class="pi-module-body">
+              <p>Wealth is built by habits, not one big win.</p>
+              <ul>
+                <li><strong>Pay yourself first:</strong> set up an automatic transfer to savings on payday, before you spend anything.</li>
+                <li><strong>Emergency fund:</strong> aim for 3–6 months of essential outgoings in an easy-access savings account before taking investment risk.</li>
+                <li><strong>Kill expensive debt:</strong> credit cards and loans charging 20%+ cost more than most investments are likely to earn — clear them first.</li>
+                <li><strong>Cut leaks:</strong> unused subscriptions and impulse buys add up fast.</li>
+                <li><strong>Raise your savings rate</strong> every time your income goes up, instead of raising your lifestyle.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="pi-module">
+            <summary><span class="pi-num">3</span>Safer starter investments<span class="pi-chev">&#9656;</span></summary>
+            <div class="pi-module-body">
+              <p>When your emergency fund is in place, start simple and lower-risk:</p>
+              <ul>
+                <li><strong>High-interest savings &amp; fixed-term accounts</strong> — low risk, but returns may not beat inflation over time.</li>
+                <li><strong>Government bonds</strong> — lending to the government for a fixed return.</li>
+                <li><strong>Global index funds / ETFs</strong> — one fund holding hundreds or thousands of companies. Still goes up and down, but spreads your risk widely and usually has low fees.</li>
+                <li><strong>Use tax-efficient accounts</strong> where available (for example ISAs and pensions in the UK) — see the <button type="button" class="pi-linkbtn" data-goto="taxes">Taxes</button> tab.</li>
+              </ul>
+              <p class="pi-muted pi-small">"Safer" doesn't mean risk-free. Any investment can fall in value.</p>
+            </div>
+          </details>
+
+          <details class="pi-module">
+            <summary><span class="pi-num">4</span>How to diversify<span class="pi-chev">&#9656;</span></summary>
+            <div class="pi-module-body">
+              <p>Diversifying means not putting all your eggs in one basket, so one bad investment can't wipe you out.</p>
+              <ul>
+                <li><strong>Across asset types:</strong> cash, stocks, bonds, property, precious metals, and (a small slice of) higher-risk assets.</li>
+                <li><strong>Across countries and sectors:</strong> don't only own one country or one industry.</li>
+                <li><strong>Across time:</strong> invest regularly (e.g. monthly) instead of all at once — known as pound-cost averaging.</li>
+                <li><strong>Size by risk:</strong> the riskier the asset, the smaller the share of your money it should get.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="pi-module">
+            <summary><span class="pi-num">5</span>How to compound<span class="pi-chev">&#9656;</span></summary>
+            <div class="pi-module-body">
+              <p>Compounding is when your returns start earning returns of their own. Over long periods it does most of the heavy lifting.</p>
+              <ul>
+                <li><strong>Start early:</strong> time in the market is the biggest lever you have.</li>
+                <li><strong>Be consistent:</strong> regular contributions matter more than perfect timing.</li>
+                <li><strong>Reinvest:</strong> let dividends and interest roll back in rather than spending them.</li>
+                <li><strong>Keep costs low:</strong> fees compound too — against you.</li>
+              </ul>
+              <button type="button" class="pi-btn pi-btn-ghost" data-goto="calculators" data-scroll="compound">Try the compound interest calculator</button>
+            </div>
+          </details>
+
+          <details class="pi-module">
+            <summary><span class="pi-num">6</span>Earn money from multiple incomes<span class="pi-chev">&#9656;</span></summary>
+            <div class="pi-module-body">
+              <p>One income is a single point of failure. More income streams = more to invest and more security.</p>
+              <ul>
+                <li><strong>Active income:</strong> your job, overtime, freelancing, a side business.</li>
+                <li><strong>Skill income:</strong> high-income skills such as trading, sales, coding or a trade — see the <button type="button" class="pi-linkbtn" data-goto="trading">Trading</button> tab.</li>
+                <li><strong>Investment income:</strong> dividends, interest, rent from property.</li>
+                <li>Build them one at a time — get one stable before starting the next.</li>
+              </ul>
+            </div>
+          </details>
+
+          <details class="pi-module">
+            <summary><span class="pi-num">7</span>Reinvest profits to gain complete freedom<span class="pi-chev">&#9656;</span></summary>
+            <div class="pi-module-body">
+              <p>Financial freedom is when your investments can pay for your lifestyle without you having to work.</p>
+              <ul>
+                <li>Work out your "freedom number": your yearly spending × 25 is a commonly used rule of thumb (based on withdrawing around 4% a year — a guideline, not a guarantee).</li>
+                <li>Reinvest profits and income instead of spending them until you get there.</li>
+                <li>Rebalance once or twice a year so your risk stays where you want it.</li>
+                <li>Track progress with the calculator — put your freedom number in as your target.</li>
+              </ul>
+              <button type="button" class="pi-btn pi-btn-ghost" data-goto="calculators" data-scroll="compound">Set my target</button>
+            </div>
+          </details>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== CALCULATORS ========== -->
+    <section role="tabpanel" data-panel="calculators" class="pi-hidden">
+      <div data-anchor="compound">
+        <span class="pi-eyebrow">Calculator</span>
+        <h2>Compound interest calculator</h2>
+        <p class="pi-muted">Type in your numbers and watch your journey draw itself on the graph.</p>
+        <div class="pi-calc">
+          <div class="pi-card">
+            <div class="pi-form">
+              <label class="pi-field pi-full">Starting amount
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-c="start" value="1000"></span>
+              </label>
+              <label class="pi-field">Regular deposit
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-c="amount" value="200"></span>
+              </label>
+              <label class="pi-field">How often
+                <select data-c="freq">
+                  <option value="week">Every week</option>
+                  <option value="month" selected>Every month</option>
+                  <option value="year">Every year</option>
+                </select>
+              </label>
+              <label class="pi-field">Yearly return
+                <span class="pi-input"><input type="number" inputmode="decimal" min="-50" max="100" step="any" data-c="rate" value="8"><span class="pi-suffix">%</span></span>
+              </label>
+              <label class="pi-field">Years
+                <span class="pi-input"><input type="number" inputmode="numeric" min="1" max="70" step="1" data-c="years" value="20"></span>
+              </label>
+              <label class="pi-field pi-full">Target amount (optional)
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-c="goal" placeholder="e.g. 250000"></span>
+              </label>
+            </div>
+            <p class="pi-small pi-muted" style="margin:14px 0 0">Returns are compounded monthly. Figures are illustrations only, not a forecast, and don't include fees, tax or inflation.</p>
+          </div>
+
+          <div class="pi-card">
+            <div class="pi-stats">
+              <div class="pi-stat"><div class="pi-stat-label">Final value</div><div class="pi-stat-value" data-out="final">–</div></div>
+              <div class="pi-stat"><div class="pi-stat-label">You put in</div><div class="pi-stat-value" data-out="contrib">–</div></div>
+              <div class="pi-stat"><div class="pi-stat-label">Growth</div><div class="pi-stat-value" data-out="growth">–</div></div>
+            </div>
+            <div class="pi-chart" data-pi="chart"></div>
+            <div class="pi-legend">
+              <span><i style="background:var(--pi-green)"></i>Total value</span>
+              <span><i style="background:var(--pi-accent)"></i>Money you put in</span>
+              <span data-pi="legend-goal" class="pi-hidden"><i style="background:var(--pi-amber)"></i>Your target</span>
+            </div>
+            <div data-out="goalnote"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pi-section" data-anchor="income">
+        <span class="pi-eyebrow">Calculator</span>
+        <h2>Income vs outgoings calculator</h2>
+        <p class="pi-muted">See what you have left each month, how much you're saving, and whether you're adding enough.</p>
+        <div class="pi-calc">
+          <div class="pi-card">
+            <h3>Monthly money in</h3>
+            <div class="pi-form">
+              <label class="pi-field">Take-home pay
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-i="pay" value="2200"></span>
+              </label>
+              <label class="pi-field">Other income
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-i="other" value="0"></span>
+              </label>
+            </div>
+            <h3 style="margin-top:20px">Monthly money out</h3>
+            <div class="pi-form">
+              <label class="pi-field">Rent / mortgage
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-o="need" value="750"></span>
+              </label>
+              <label class="pi-field">Bills &amp; utilities
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-o="need" value="200"></span>
+              </label>
+              <label class="pi-field">Food &amp; groceries
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-o="need" value="250"></span>
+              </label>
+              <label class="pi-field">Transport
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-o="need" value="150"></span>
+              </label>
+              <label class="pi-field">Debt repayments
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-o="need" value="0"></span>
+              </label>
+              <label class="pi-field">Subscriptions
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-o="want" value="40"></span>
+              </label>
+              <label class="pi-field">Going out &amp; fun
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-o="want" value="200"></span>
+              </label>
+              <label class="pi-field">Everything else
+                <span class="pi-input"><span data-cur></span><input type="number" inputmode="decimal" min="0" step="any" data-o="want" value="100"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="pi-card">
+            <div class="pi-stats">
+              <div class="pi-stat"><div class="pi-stat-label">Money in</div><div class="pi-stat-value" data-inc="in">–</div></div>
+              <div class="pi-stat"><div class="pi-stat-label">Money out</div><div class="pi-stat-value" data-inc="out">–</div></div>
+              <div class="pi-stat"><div class="pi-stat-label">Left over</div><div class="pi-stat-value" data-inc="left">–</div></div>
+            </div>
+
+            <div class="pi-split-row"><span>Outgoings as % of income</span><strong data-inc="outpct">–</strong></div>
+            <div class="pi-bar"><div data-inc="outbar" style="width:0;background:var(--pi-accent)"></div></div>
+
+            <div class="pi-split-row"><span>Savings rate (left over ÷ income)</span><strong data-inc="saverate">–</strong></div>
+            <div class="pi-bar"><div data-inc="savebar" style="width:0;background:var(--pi-green)"></div></div>
+
+            <h4 style="margin-top:20px">50 / 30 / 20 guide</h4>
+            <p class="pi-small pi-muted">A popular rule of thumb: about 50% on needs, 30% on wants, and at least 20% saved or invested.</p>
+            <div class="pi-split-row"><span>Needs (housing, bills, food, transport, debt)</span><strong data-inc="needs">–</strong></div>
+            <div class="pi-split-row"><span>Wants (subscriptions, fun, everything else)</span><strong data-inc="wants">–</strong></div>
+            <div class="pi-split-row"><span>Saved / invested</span><strong data-inc="saved">–</strong></div>
+
+            <div class="pi-split-row" style="margin-top:16px"><span>Emergency fund target (3–6 months of outgoings)</span><strong data-inc="emergency">–</strong></div>
+
+            <div data-inc="verdict"></div>
+            <div class="pi-btn-row" style="margin-top:14px">
+              <button type="button" class="pi-btn" data-pi="use-surplus">Invest my left-over each month &rarr;</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== TRADING ========== -->
+    <section role="tabpanel" data-panel="trading" class="pi-hidden">
+      <div class="pi-topic-head"><span class="pi-pill">High-income skill</span><span class="pi-pill pi-risk-high">High risk</span></div>
+      <h2>Trading</h2>
+      <p>Trading means buying and selling over shorter periods (minutes to weeks) to profit from price moves, rather than holding for years. Treated as a skill — learned, practised and measured — it can become an extra income stream. Most beginners lose money, so the aim early on is to survive and learn.</p>
+      <div class="pi-video pi-topic-video" data-video="trading"></div>
+      <div class="pi-grid-2">
+        <div class="pi-card">
+          <h3>The foundations</h3>
+          <ul>
+            <li><strong>Risk management first:</strong> many traders risk only 1–2% of their account on any single trade.</li>
+            <li><strong>Always use a stop-loss</strong> — decide where you're wrong before you enter.</li>
+            <li><strong>Have a written plan:</strong> what you trade, when you enter, when you exit.</li>
+            <li><strong>Keep a journal</strong> of every trade and review it weekly.</li>
+            <li><strong>Practise on a demo account</strong> before using real money.</li>
+          </ul>
+        </div>
+        <div class="pi-card">
+          <h3>Watch out for</h3>
+          <ul>
+            <li><strong>Leverage</strong> (CFDs, spread bets, futures) multiplies losses as well as gains — you can lose more than you expect very quickly.</li>
+            <li>Over-trading and revenge trading after a loss.</li>
+            <li>"Guaranteed" signal groups and get-rich-quick promises.</li>
+            <li>Trading money you need for bills or your emergency fund.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pi-experience pi-hidden" data-experience="trading"><h3>My experience</h3><p class="pi-experience-text"></p></div>
+    </section>
+
+    <!-- ========== METALS ========== -->
+    <section role="tabpanel" data-panel="metals" class="pi-hidden">
+      <div class="pi-topic-head"><span class="pi-pill">Physical assets</span><span class="pi-pill pi-risk-med">Medium risk</span></div>
+      <h2>Gold, Silver &amp; Copper (physical)</h2>
+      <p>Physical metals are real things you can hold. Gold in particular has been used as a store of value for thousands of years, and people often buy it as a hedge against inflation, currency weakness and market stress.</p>
+      <div class="pi-video pi-topic-video" data-video="metals"></div>
+      <div class="pi-grid-3">
+        <div class="pi-card">
+          <h3>Gold</h3>
+          <p>The classic "safe haven". Tends to hold value over long periods but can go years without growing. Coins and bars are the most common ways to own it physically.</p>
+        </div>
+        <div class="pi-card">
+          <h3>Silver</h3>
+          <p>Both a precious and an industrial metal (used in solar panels and electronics). Cheaper per ounce than gold and usually more volatile.</p>
+        </div>
+        <div class="pi-card">
+          <h3>Copper</h3>
+          <p>An industrial metal tied to construction, electrification and EVs. Physical copper is bulky to store, so its price is closely linked to the health of the economy.</p>
+        </div>
+      </div>
+      <div class="pi-card" style="margin-top:16px">
+        <h3>Things to know before buying physical metal</h3>
+        <ul>
+          <li><strong>Premiums:</strong> you pay above the "spot" price when you buy and usually get less than spot when you sell.</li>
+          <li><strong>Storage &amp; insurance:</strong> keep it secure — a home safe or a professional vault.</li>
+          <li><strong>Buy from reputable dealers</strong> and check what you receive — fakes exist.</li>
+          <li><strong>No income:</strong> metal doesn't pay dividends or interest; your return is only the price change.</li>
+          <li><strong>Tax:</strong> rules differ by coin, bar and country — check the <button type="button" class="pi-linkbtn" data-goto="taxes">Taxes</button> tab.</li>
+        </ul>
+      </div>
+      <div class="pi-experience pi-hidden" data-experience="metals"><h3>My experience</h3><p class="pi-experience-text"></p></div>
+    </section>
+
+    <!-- ========== STOCKS ========== -->
+    <section role="tabpanel" data-panel="stocks" class="pi-hidden">
+      <div class="pi-topic-head"><span class="pi-pill">Shares &amp; funds</span></div>
+      <h2>Stocks</h2>
+      <p>Owning a stock means owning a small piece of a company. Over long periods, stock markets have historically been one of the strongest-growing asset classes — but with big ups and downs along the way.</p>
+      <div class="pi-video pi-topic-video" data-video="stocks"></div>
+      <div class="pi-grid-2">
+        <div class="pi-card">
+          <div class="pi-topic-head"><span class="pi-pill pi-risk-low">Safer approach</span></div>
+          <h3>Steady &amp; diversified</h3>
+          <ul>
+            <li><strong>Global or S&amp;P 500 index funds/ETFs</strong> — thousands or hundreds of companies in one fund, with low fees.</li>
+            <li><strong>Large, established "blue-chip" companies</strong> with long track records.</li>
+            <li><strong>Dividend payers</strong> — reinvest the dividends to compound.</li>
+            <li>Invest monthly and hold for the long term (5+ years).</li>
+          </ul>
+        </div>
+        <div class="pi-card">
+          <div class="pi-topic-head"><span class="pi-pill pi-risk-high">Higher risk</span></div>
+          <h3>Bigger potential, bigger swings</h3>
+          <ul>
+            <li><strong>Individual growth stocks</strong> — small and mid-sized companies, tech and emerging sectors.</li>
+            <li><strong>Penny stocks</strong> — very cheap shares that can swing (or collapse) wildly.</li>
+            <li><strong>Concentrated positions</strong> — a few companies instead of hundreds.</li>
+            <li>Keep this to a small part of your portfolio and research each company properly.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pi-experience pi-hidden" data-experience="stocks"><h3>My experience</h3><p class="pi-experience-text"></p></div>
+    </section>
+
+    <!-- ========== CRYPTO ========== -->
+    <section role="tabpanel" data-panel="crypto" class="pi-hidden">
+      <div class="pi-topic-head"><span class="pi-pill">Digital assets</span><span class="pi-pill pi-risk-high">High risk</span></div>
+      <h2>Crypto</h2>
+      <p>Cryptocurrencies are digital assets that run on blockchains. Even the largest ones can fall 50% or more, and many smaller coins have gone to zero. Treat it as a high-risk part of your portfolio, sized so you could handle losing it.</p>
+      <div class="pi-video pi-topic-video" data-video="crypto"></div>
+      <div class="pi-grid-2">
+        <div class="pi-card">
+          <div class="pi-topic-head"><span class="pi-pill pi-risk-med">"Safer" end</span></div>
+          <h3>Established coins</h3>
+          <ul>
+            <li><strong>Bitcoin and Ethereum</strong> — the largest, longest-running and most widely held.</li>
+            <li>Buy regularly in small amounts rather than all at once.</li>
+            <li>Use large, reputable exchanges registered with your country's regulator.</li>
+            <li>Consider moving long-term holdings to a wallet you control (hardware wallet) — and never share your seed phrase.</li>
+          </ul>
+        </div>
+        <div class="pi-card">
+          <div class="pi-topic-head"><span class="pi-pill pi-risk-high">Very high risk</span></div>
+          <h3>Small coins &amp; speculation</h3>
+          <ul>
+            <li>Small-cap "altcoins", meme coins and new token launches.</li>
+            <li>Leveraged crypto trading.</li>
+            <li>Watch out for rug pulls, pump-and-dumps, fake giveaways and anyone asking for your wallet keys.</li>
+            <li>If it promises guaranteed returns, it's a red flag.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pi-experience pi-hidden" data-experience="crypto"><h3>My experience</h3><p class="pi-experience-text"></p></div>
+    </section>
+
+    <!-- ========== COLLECTIBLES ========== -->
+    <section role="tabpanel" data-panel="collectibles" class="pi-hidden">
+      <div class="pi-topic-head"><span class="pi-pill">Alternative assets</span><span class="pi-pill pi-risk-high">High risk</span></div>
+      <h2>Collectibles — Pokémon tips &amp; tricks</h2>
+      <p>Trading cards, sealed products and other collectibles can rise a lot in value when supply is limited and demand grows. They can also fall when hype fades, and they're slower to sell than stocks.</p>
+      <div class="pi-video pi-topic-video" data-video="collectibles"></div>
+      <div class="pi-grid-2">
+        <div class="pi-card">
+          <h3>Tips &amp; tricks</h3>
+          <ul>
+            <li><strong>Sealed product</strong> (booster boxes, elite trainer boxes) is often held long term — once it's opened, supply only goes down.</li>
+            <li><strong>Graded cards:</strong> a professional grade (e.g. PSA, CGC, Beckett) can add a lot of value to top-condition cards.</li>
+            <li><strong>Condition is everything</strong> — sleeves, top-loaders, and dry, dark storage.</li>
+            <li><strong>Check sold prices</strong>, not asking prices, before you buy or sell.</li>
+            <li>Iconic characters and first editions have historically held demand best.</li>
+          </ul>
+        </div>
+        <div class="pi-card">
+          <h3>Watch out for</h3>
+          <ul>
+            <li>Fakes and resealed packs — buy from trusted sellers.</li>
+            <li>Fees: grading, postage, insurance and selling-platform fees all eat into profit.</li>
+            <li>Hype cycles — prices can drop fast after a peak.</li>
+            <li>Liquidity — it can take time to find a buyer at your price.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pi-experience pi-hidden" data-experience="collectibles"><h3>My experience</h3><p class="pi-experience-text"></p></div>
+    </section>
+
+    <!-- ========== PROPERTY ========== -->
+    <section role="tabpanel" data-panel="property" class="pi-hidden">
+      <div class="pi-topic-head"><span class="pi-pill">Real estate</span><span class="pi-pill pi-risk-med">Medium risk</span></div>
+      <h2>Property &amp; the best kinds</h2>
+      <p>Property can earn you two ways: rental income and the property rising in value. It usually needs more money to start, ties your money up for longer, and comes with ongoing costs and responsibilities.</p>
+      <div class="pi-video pi-topic-video" data-video="property"></div>
+      <div class="pi-grid-2">
+        <div class="pi-card">
+          <h3>Common types</h3>
+          <ul>
+            <li><strong>Buy-to-let:</strong> a single house or flat rented to tenants.</li>
+            <li><strong>HMOs</strong> (houses in multiple occupation): rooms let individually — usually higher income, more management and licensing rules.</li>
+            <li><strong>Holiday / short-term lets:</strong> higher nightly rates, more work and seasonality.</li>
+            <li><strong>Commercial:</strong> shops, offices, units — longer leases, different risks.</li>
+            <li><strong>REITs / property funds:</strong> invest in property through the stock market with small amounts and no landlord duties.</li>
+          </ul>
+        </div>
+        <div class="pi-card">
+          <h3>What to check</h3>
+          <ul>
+            <li><strong>Rental yield:</strong> yearly rent ÷ purchase price × 100.</li>
+            <li><strong>All the costs:</strong> mortgage, deposit, stamp duty, legal fees, repairs, insurance, letting agent, empty months.</li>
+            <li><strong>Location:</strong> jobs, transport links, schools and demand for rentals.</li>
+            <li><strong>Interest-rate risk:</strong> rising mortgage rates can turn a profit into a loss.</li>
+            <li>Landlord rules and licensing in your area.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pi-experience pi-hidden" data-experience="property"><h3>My experience</h3><p class="pi-experience-text"></p></div>
+    </section>
+
+    <!-- ========== MARKET CRASHES ========== -->
+    <section role="tabpanel" data-panel="crashes" class="pi-hidden">
+      <div class="pi-topic-head"><span class="pi-pill">Strategy</span></div>
+      <h2>How to position yourself for market crashes &amp; corrections</h2>
+      <p>A <strong>correction</strong> is usually defined as a fall of 10% or more from a recent high; a <strong>bear market</strong> or crash is 20% or more. They have happened many times and will happen again — the goal is to be prepared, not to predict them perfectly.</p>
+      <div class="pi-video pi-topic-video" data-video="crashes"></div>
+      <div class="pi-grid-2">
+        <div class="pi-card">
+          <h3>Before it happens</h3>
+          <ul>
+            <li><strong>Emergency fund in cash</strong> so you never have to sell investments at the bottom.</li>
+            <li><strong>Diversify</strong> across assets that don't all move together (e.g. stocks, bonds, gold, cash).</li>
+            <li><strong>Hold some "dry powder"</strong> — cash ready to invest when prices are lower.</li>
+            <li><strong>Avoid too much leverage and debt.</strong></li>
+            <li>Have a plan written down in advance of what you'll do if markets fall 10%, 20%, 30%.</li>
+          </ul>
+        </div>
+        <div class="pi-card">
+          <h3>When it happens</h3>
+          <ul>
+            <li><strong>Don't panic sell</strong> — historically, selling in a crash has often locked in losses.</li>
+            <li><strong>Keep investing regularly</strong> — your monthly deposits buy more when prices are lower.</li>
+            <li><strong>Rebalance</strong> back to your target mix.</li>
+            <li>Use your dry powder in stages rather than trying to catch the exact bottom.</li>
+            <li>Remember: some individual companies never recover. Diversified funds are more resilient than single stocks.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="pi-experience pi-hidden" data-experience="crashes"><h3>My experience</h3><p class="pi-experience-text"></p></div>
+    </section>
+
+    <!-- ========== TAXES ========== -->
+    <section role="tabpanel" data-panel="taxes" class="pi-hidden">
+      <div class="pi-topic-head"><span class="pi-pill">Taxes</span></div>
+      <h2>Taxes</h2>
+      <p>Tax can take a big bite out of your returns, and the rules change regularly and differ by country. Getting it right can save you money and keeps you on the right side of the tax authorities.</p>
+      <div class="pi-video pi-topic-video" data-video="taxes"></div>
+      <div class="pi-grid-2">
+        <div class="pi-card">
+          <h3>The basics to know</h3>
+          <ul>
+            <li><strong>Tax-free / tax-efficient accounts</strong> (in the UK, ISAs and pensions) can shelter investments from tax up to yearly limits.</li>
+            <li><strong>Capital gains tax</strong> may be due when you sell something for more than you paid.</li>
+            <li><strong>Dividends, interest and rent</strong> can all be taxable income.</li>
+            <li><strong>Crypto</strong> is taxable in many countries — including when you swap one coin for another.</li>
+            <li><strong>Trading profits</strong> may be taxed differently depending on how and how often you trade.</li>
+            <li><strong>Keep records</strong> of every buy, sell, date and price.</li>
+          </ul>
+          <p class="pi-small pi-muted">Allowances and rates change. Always check the latest figures with your tax authority (in the UK: <a href="https://www.gov.uk/browse/tax" target="_blank" rel="noopener noreferrer">gov.uk</a>) or a qualified accountant.</p>
+        </div>
+        <div class="pi-card" data-pi="accountant">
+          <span class="pi-eyebrow">Optional service</span>
+          <h3 data-acc="name">Work with a professional accountant</h3>
+          <p data-acc="intro"></p>
+          <ul data-acc="services"></ul>
+          <p data-acc="fee" class="pi-hidden"><strong>Fee:</strong> <span data-acc="fee-text"></span></p>
+          <div class="pi-btn-row">
+            <a class="pi-btn pi-hidden" data-acc="link" href="#" target="_blank" rel="noopener noreferrer">Book the accountant</a>
+            <span class="pi-muted pi-small" data-acc="soon">Booking opens soon.</span>
+          </div>
+          <p class="pi-small pi-muted pi-hidden" data-acc="disclosure" style="margin:12px 0 0"></p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="pi-footer">
+      <p><strong>Not financial advice.</strong> Everything in this section is for education and information only. The value of investments can go down as well as up and you may get back less than you invest. Past performance is not a reliable indicator of future results. Calculator results are illustrations, not guarantees.</p>
+      <p><button type="button" class="pi-linkbtn" data-pi="reshow">View the full disclaimer again</button></p>
+    </footer>
+
+  </div>
+</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =================================================================
+     CONFIG — EDIT THIS SECTION ONLY
+     -----------------------------------------------------------------
+     • Videos: paste a YouTube, Vimeo, or direct .mp4 link between the
+       quotes. Leave as "" to hide the video (intro shows "coming soon").
+     • Experience: your personal write-up for each tab. Leave "" to hide.
+       Use \n for a new line.
+     • Accountant: details shown on the Taxes tab.
+     ================================================================= */
+  var CONFIG = {
+    currency: "GBP",      // e.g. "GBP", "USD", "EUR"
+    locale: "en-GB",      // e.g. "en-GB", "en-US"
+
+    videos: {
+      intro: "",
+      trading: "",
+      metals: "",
+      stocks: "",
+      crypto: "",
+      collectibles: "",
+      property: "",
+      crashes: "",
+      taxes: ""
+    },
+
+    // Shown as a highlight on the Get Started page (a past-performance
+    // warning is always shown with it). Leave "" to hide.
+    trackRecord: "My investments, taken together, have beaten the S&P 500 every single year for the past 7 years.",
+
+    experience: {
+      trading: "",
+      metals: "",
+      stocks: "",
+      crypto: "",
+      collectibles: "",
+      property: "",
+      crashes: ""
+    },
+
+    accountant: {
+      name: "Work with a professional accountant",
+      intro: "Want your tax handled properly? Our partner accountant can help you get it right and keep more of your returns.",
+      services: [
+        "Self Assessment tax returns",
+        "Capital gains & crypto tax reports",
+        "Trading income & side-business tax",
+        "Property & rental income tax"
+      ],
+      fee: "",            // e.g. "From £150 — optional, paid directly to the accountant"
+      bookingUrl: "",     // e.g. "https://calendly.com/your-accountant" (leave "" to show "Booking opens soon")
+      buttonText: "Book the accountant",
+      disclosure: "This is an optional, separate service provided by an independent accountant. We may receive a referral fee if you choose to use it."
+    }
+  };
+  /* ======================= END OF CONFIG ======================= */
+
+
+  var root = document.getElementById("pact-invest");
+  if (!root || root.getAttribute("data-pi-ready") === "1") return;
+  root.setAttribute("data-pi-ready", "1");
+
+  var STORAGE_KEY = "pactInvestDisclaimerAccepted_v1";
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
+  function $(sel) { return root.querySelector(sel); }
+  function $$(sel) { return Array.prototype.slice.call(root.querySelectorAll(sel)); }
+
+  function store(key, val) {
+    try {
+      if (val === undefined) return window.localStorage.getItem(key);
+      window.localStorage.setItem(key, val);
+    } catch (e) { /* storage blocked — ignore */ }
+    return null;
+  }
+
+  /* ---------------- money formatting ---------------- */
+  var moneyFmt, currencySymbol = "£";
+  try {
+    moneyFmt = new Intl.NumberFormat(CONFIG.locale, { style: "currency", currency: CONFIG.currency, maximumFractionDigits: 0, minimumFractionDigits: 0 });
+    var parts = moneyFmt.formatToParts(0);
+    for (var p = 0; p < parts.length; p++) if (parts[p].type === "currency") currencySymbol = parts[p].value;
+  } catch (e) {
+    moneyFmt = { format: function (n) { return currencySymbol + Math.round(n).toLocaleString(); } };
+  }
+  function money(n) {
+    if (!isFinite(n)) return "–";
+    var r = Math.round(n);
+    return moneyFmt.format(r === 0 ? 0 : r); // avoid "-£0"
+  }
+  function moneyShort(n) {
+    var a = Math.abs(n), s = n < 0 ? "-" : "";
+    if (a >= 1e9) return s + currencySymbol + trim(a / 1e9) + "bn";
+    if (a >= 1e6) return s + currencySymbol + trim(a / 1e6) + "m";
+    if (a >= 1e3) return s + currencySymbol + trim(a / 1e3) + "k";
+    return s + currencySymbol + Math.round(a);
+  }
+  function trim(x) { return x >= 100 ? String(Math.round(x)) : String(Math.round(x * 10) / 10); }
+  function pct(n) { return isFinite(n) ? (Math.round(n * 10) / 10) + "%" : "–"; }
+  function num(el, min, max, fallback) {
+    var v = parseFloat(el && el.value);
+    if (!isFinite(v)) v = fallback;
+    if (min !== null && v < min) v = min;
+    if (max !== null && v > max) v = max;
+    return v;
+  }
+
+  $$("[data-cur]").forEach(function (el) { el.textContent = currencySymbol; });
+
+  /* ---------------- disclaimer gate ---------------- */
+  var gate = $('[data-pi="gate"]'), app = $('[data-pi="app"]');
+  var gateCheck = $('[data-pi="gate-check"]'), gateBtn = $('[data-pi="gate-accept"]');
+
+  function showApp() { gate.classList.add("pi-hidden"); app.classList.remove("pi-hidden"); renderAll(); }
+  function showGate() {
+    app.classList.add("pi-hidden"); gate.classList.remove("pi-hidden");
+    gateCheck.checked = false; gateBtn.disabled = true;
+    scrollToEl(gate);
+  }
+  gateCheck.addEventListener("change", function () { gateBtn.disabled = !gateCheck.checked; });
+  gateBtn.addEventListener("click", function () {
+    if (!gateCheck.checked) return;
+    store(STORAGE_KEY, new Date().toISOString());
+    showApp();
+    scrollToEl(root);
+  });
+  $('[data-pi="reshow"]').addEventListener("click", showGate);
+
+  /* ---------------- tabs ---------------- */
+  var tabs = $$(".pi-tab"), panels = $$("[data-panel]");
+  function selectTab(name) {
+    var found = false;
+    tabs.forEach(function (t) {
+      var on = t.getAttribute("data-tab") === name;
+      if (on) found = true;
+      t.setAttribute("aria-selected", on ? "true" : "false");
+      t.setAttribute("tabindex", on ? "0" : "-1");
+    });
+    if (!found) return selectTab("home");
+    panels.forEach(function (pn) { pn.classList.toggle("pi-hidden", pn.getAttribute("data-panel") !== name); });
+    var active = $('.pi-tab[data-tab="' + name + '"]');
+    if (active && active.scrollIntoView) {
+      var bar = $('[data-pi="tabs"]');
+      bar.scrollLeft = active.offsetLeft - bar.clientWidth / 2 + active.clientWidth / 2;
+    }
+    if (name === "calculators") renderCompound(); // chart needs to be visible to size correctly
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener("click", function () { selectTab(t.getAttribute("data-tab")); });
+    t.addEventListener("keydown", function (e) {
+      var j = null;
+      if (e.key === "ArrowRight") j = (i + 1) % tabs.length;
+      else if (e.key === "ArrowLeft") j = (i - 1 + tabs.length) % tabs.length;
+      if (j !== null) { e.preventDefault(); tabs[j].focus(); selectTab(tabs[j].getAttribute("data-tab")); }
+    });
+  });
+
+  function scrollToEl(el) {
+    if (!el) return;
+    try {
+      var top = el.getBoundingClientRect().top + (window.pageYOffset || document.documentElement.scrollTop) - 80;
+      window.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    } catch (e) { el.scrollIntoView(); }
+  }
+
+  root.addEventListener("click", function (e) {
+    var el = e.target.closest ? e.target.closest("[data-goto],[data-scroll]") : null;
+    if (!el || !root.contains(el)) return;
+    var go = el.getAttribute("data-goto"), sc = el.getAttribute("data-scroll");
+    if (go) selectTab(go);
+    if (sc) scrollToEl($('[data-anchor="' + sc + '"]'));
+    else if (go) scrollToEl($('[data-pi="tabs"]'));
+  });
+
+  /* ---------------- videos ---------------- */
+  function embedUrl(url) {
+    url = String(url || "").trim();
+    if (!/^https:\/\//i.test(url)) return null;
+    var m;
+    if ((m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{6,})/))) {
+      return { type: "iframe", src: "https://www.youtube-nocookie.com/embed/" + m[1] + "?rel=0" };
+    }
+    if ((m = url.match(/vimeo\.com\/(?:video\/)?(\d+)/))) {
+      return { type: "iframe", src: "https://player.vimeo.com/video/" + m[1] };
+    }
+    if (/\.(mp4|webm|mov)(\?.*)?$/i.test(url)) return { type: "video", src: url };
+    return { type: "iframe", src: url };
+  }
+  $$("[data-video]").forEach(function (box) {
+    var key = box.getAttribute("data-video");
+    var info = embedUrl(CONFIG.videos[key]);
+    if (!info) {
+      if (key === "intro") {
+        var empty = document.createElement("div");
+        empty.className = "pi-video-empty";
+        empty.innerHTML = '<span class="pi-play"></span><span>Intro video coming soon</span>';
+        box.appendChild(empty);
+      } else {
+        box.classList.add("pi-hidden");
+      }
+      return;
+    }
+    var el;
+    if (info.type === "video") {
+      el = document.createElement("video");
+      el.controls = true; el.preload = "metadata"; el.setAttribute("playsinline", "");
+    } else {
+      el = document.createElement("iframe");
+      el.setAttribute("allow", "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen");
+      el.setAttribute("allowfullscreen", "");
+      el.setAttribute("loading", "lazy");
+      el.setAttribute("referrerpolicy", "strict-origin-when-cross-origin");
+      el.title = "Video";
+    }
+    el.src = info.src;
+    box.appendChild(el);
+  });
+
+  /* ---------------- personal content ---------------- */
+  if (CONFIG.trackRecord && String(CONFIG.trackRecord).trim()) {
+    $('[data-pi="track-text"]').textContent = CONFIG.trackRecord;
+    $('[data-pi="track"]').classList.remove("pi-hidden");
+  }
+  $$("[data-experience]").forEach(function (box) {
+    var txt = CONFIG.experience[box.getAttribute("data-experience")];
+    if (txt && String(txt).trim()) {
+      box.querySelector(".pi-experience-text").textContent = txt;
+      box.classList.remove("pi-hidden");
+    }
+  });
+
+  /* ---------------- accountant ---------------- */
+  (function () {
+    var a = CONFIG.accountant || {};
+    if (a.name) $('[data-acc="name"]').textContent = a.name;
+    $('[data-acc="intro"]').textContent = a.intro || "";
+    var ul = $('[data-acc="services"]');
+    (a.services || []).forEach(function (s) { var li = document.createElement("li"); li.textContent = s; ul.appendChild(li); });
+    if (!ul.children.length) ul.classList.add("pi-hidden");
+    if (a.fee) { $('[data-acc="fee-text"]').textContent = a.fee; $('[data-acc="fee"]').classList.remove("pi-hidden"); }
+    var link = $('[data-acc="link"]');
+    if (a.bookingUrl && /^(https?:\/\/|mailto:|tel:)/i.test(a.bookingUrl)) {
+      link.href = a.bookingUrl;
+      link.textContent = a.buttonText || "Book the accountant";
+      link.classList.remove("pi-hidden");
+      $('[data-acc="soon"]').classList.add("pi-hidden");
+    }
+    if (a.disclosure) { var d = $('[data-acc="disclosure"]'); d.textContent = a.disclosure; d.classList.remove("pi-hidden"); }
+  })();
+
+  /* ---------------- compound interest calculator ---------------- */
+  var cIn = {
+    start: $('[data-c="start"]'), amount: $('[data-c="amount"]'), freq: $('[data-c="freq"]'),
+    rate: $('[data-c="rate"]'), years: $('[data-c="years"]'), goal: $('[data-c="goal"]')
+  };
+
+  function simulate() {
+    var start = num(cIn.start, 0, 1e12, 0);
+    var amount = num(cIn.amount, 0, 1e10, 0);
+    var freq = cIn.freq.value;
+    var rate = num(cIn.rate, -50, 100, 0);
+    var years = Math.round(num(cIn.years, 1, 70, 1));
+    var goalRaw = parseFloat(cIn.goal.value);
+    var goal = isFinite(goalRaw) && goalRaw > 0 ? goalRaw : 0;
+
+    var r = Math.pow(1 + rate / 100, 1 / 12) - 1; // monthly rate giving the stated yearly return
+    var months = years * 12;
+    var bal = start, put = start, goalMonth = (goal && start >= goal) ? 0 : -1;
+    var pts = [{ year: 0, total: bal, put: put }];
+
+    for (var m = 1; m <= months; m++) {
+      var dep = 0;
+      if (freq === "week") dep = amount * 52 / 12;
+      else if (freq === "month") dep = amount;
+      else if (freq === "year" && m % 12 === 0) dep = amount;
+      bal = bal * (1 + r) + dep;
+      put += dep;
+      if (goal && goalMonth < 0 && bal >= goal) goalMonth = m;
+      if (m % 12 === 0) pts.push({ year: m / 12, total: bal, put: put });
+    }
+
+    var needMonthly = null;
+    if (goal) {
+      var g = Math.pow(1 + r, months);
+      needMonthly = Math.abs(r) < 1e-12 ? (goal - start) / months : (goal - start * g) * r / (g - 1);
+      if (needMonthly < 0) needMonthly = 0;
+    }
+    return { pts: pts, final: bal, put: put, goal: goal, goalMonth: goalMonth, needMonthly: needMonthly, years: years, freq: freq, amount: amount };
+  }
+
+  function niceMax(v) {
+    if (v <= 0) return 1;
+    var e = Math.pow(10, Math.floor(Math.log10(v))), f = v / e;
+    var nf = f <= 1 ? 1 : f <= 1.5 ? 1.5 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 3 ? 3 : f <= 4 ? 4 : f <= 5 ? 5 : f <= 6 ? 6 : f <= 8 ? 8 : 10;
+    return nf * e;
+  }
+
+  function svgEl(tag, attrs, parent) {
+    var el = document.createElementNS(SVG_NS, tag);
+    for (var k in attrs) if (Object.prototype.hasOwnProperty.call(attrs, k)) el.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(el);
+    return el;
+  }
+
+  var chartBox = $('[data-pi="chart"]');
+  var lastSim = null;
+
+  function drawChart(sim) {
+    lastSim = sim;
+    chartBox.innerHTML = "";
+    var cw = chartBox.clientWidth || 640;
+    var W = Math.max(320, Math.min(640, Math.round(cw))), H = W < 500 ? 260 : 320, L = 58, R = 14, T = 14, B = 34;
+    var pw = W - L - R, ph = H - T - B;
+    var pts = sim.pts, n = pts.length - 1;
+    var maxV = 0;
+    pts.forEach(function (d) { maxV = Math.max(maxV, d.total, d.put); });
+    if (sim.goal) maxV = Math.max(maxV, sim.goal);
+    var yMax = niceMax(maxV * 1.04);
+    function x(i) { return L + (n === 0 ? 0 : (i / n) * pw); }
+    function y(v) { return T + ph - (Math.max(0, v) / yMax) * ph; }
+
+    var svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Growth of your investment over " + sim.years + " years" }, chartBox);
+    var defs = svgEl("defs", {}, svg);
+    var grad = svgEl("linearGradient", { id: "piGradG", x1: "0", y1: "0", x2: "0", y2: "1" }, defs);
+    svgEl("stop", { offset: "0%", "stop-color": "#34d399", "stop-opacity": "0.45" }, grad);
+    svgEl("stop", { offset: "100%", "stop-color": "#34d399", "stop-opacity": "0.04" }, grad);
+    var grad2 = svgEl("linearGradient", { id: "piGradP", x1: "0", y1: "0", x2: "0", y2: "1" }, defs);
+    svgEl("stop", { offset: "0%", "stop-color": "#8b5cf6", "stop-opacity": "0.6" }, grad2);
+    svgEl("stop", { offset: "100%", "stop-color": "#8b5cf6", "stop-opacity": "0.15" }, grad2);
+
+    // gridlines + y labels
+    for (var gi = 0; gi <= 4; gi++) {
+      var gv = yMax * gi / 4, gy = y(gv);
+      svgEl("line", { x1: L, x2: W - R, y1: gy, y2: gy, stroke: "#2d2547", "stroke-width": 1 }, svg);
+      var tl = svgEl("text", { x: L - 8, y: gy + 4, "text-anchor": "end" }, svg);
+      tl.textContent = moneyShort(gv);
+    }
+    // x labels
+    var step = Math.max(1, Math.ceil(n / (W < 500 ? 5 : 8)));
+    for (var xi = 0; xi <= n; xi += step) {
+      var xl = svgEl("text", { x: x(xi), y: H - 10, "text-anchor": "middle" }, svg);
+      xl.textContent = xi === 0 ? "Now" : "Yr " + pts[xi].year;
+    }
+    if (n % step !== 0 && n % step >= step / 2) {
+      var xe = svgEl("text", { x: x(n), y: H - 10, "text-anchor": "end" }, svg);
+      xe.textContent = "Yr " + pts[n].year;
+    }
+
+    function area(key) {
+      var d = "M" + x(0) + "," + y(0);
+      for (var i = 0; i <= n; i++) d += " L" + x(i).toFixed(2) + "," + y(pts[i][key]).toFixed(2);
+      return d + " L" + x(n) + "," + y(0) + " Z";
+    }
+    function line(key) {
+      var d = "";
+      for (var i = 0; i <= n; i++) d += (i ? " L" : "M") + x(i).toFixed(2) + "," + y(pts[i][key]).toFixed(2);
+      return d;
+    }
+    svgEl("path", { d: area("total"), fill: "url(#piGradG)" }, svg);
+    svgEl("path", { d: area("put"), fill: "url(#piGradP)" }, svg);
+    svgEl("path", { d: line("put"), fill: "none", stroke: "#8b5cf6", "stroke-width": 2 }, svg);
+    svgEl("path", { d: line("total"), fill: "none", stroke: "#34d399", "stroke-width": 2.5, "stroke-linejoin": "round" }, svg);
+
+    if (sim.goal) {
+      var gyy = y(sim.goal);
+      svgEl("line", { x1: L, x2: W - R, y1: gyy, y2: gyy, stroke: "#fbbf24", "stroke-width": 1.5, "stroke-dasharray": "6 5" }, svg);
+    }
+
+    // hover
+    var guide = svgEl("line", { x1: 0, x2: 0, y1: T, y2: T + ph, stroke: "#a69fc0", "stroke-width": 1, "stroke-dasharray": "3 3", visibility: "hidden" }, svg);
+    var dotT = svgEl("circle", { r: 5, fill: "#34d399", stroke: "#0d0a15", "stroke-width": 2, visibility: "hidden" }, svg);
+    var dotP = svgEl("circle", { r: 4, fill: "#8b5cf6", stroke: "#0d0a15", "stroke-width": 2, visibility: "hidden" }, svg);
+    var hit = svgEl("rect", { x: L, y: T, width: pw, height: ph, fill: "transparent" }, svg);
+    var tip = document.createElement("div");
+    tip.className = "pi-tip pi-hidden";
+    chartBox.appendChild(tip);
+
+    function show(evt) {
+      var rect = svg.getBoundingClientRect();
+      if (!rect.width) return;
+      var cx = evt.touches ? evt.touches[0].clientX : evt.clientX;
+      var vx = (cx - rect.left) / rect.width * W;
+      var i = n === 0 ? 0 : Math.round((vx - L) / pw * n);
+      i = Math.max(0, Math.min(n, i));
+      var d = pts[i], px = x(i);
+      guide.setAttribute("x1", px); guide.setAttribute("x2", px);
+      dotT.setAttribute("cx", px); dotT.setAttribute("cy", y(d.total));
+      dotP.setAttribute("cx", px); dotP.setAttribute("cy", y(d.put));
+      [guide, dotT, dotP].forEach(function (el) { el.setAttribute("visibility", "visible"); });
+      tip.innerHTML = "";
+      var rows = [
+        [d.year === 0 ? "Today" : "Year " + d.year, null],
+        ["Total value: ", money(d.total)],
+        ["Put in: ", money(d.put)],
+        ["Growth: ", money(d.total - d.put)]
+      ];
+      rows.forEach(function (rw, k) {
+        var div = document.createElement("div");
+        if (k === 0) { var b = document.createElement("strong"); b.textContent = rw[0]; div.appendChild(b); }
+        else { div.appendChild(document.createTextNode(rw[0])); var s = document.createElement("strong"); s.textContent = rw[1]; div.appendChild(s); }
+        tip.appendChild(div);
+      });
+      tip.classList.remove("pi-hidden");
+      var leftPx = px / W * rect.width, tw = tip.offsetWidth;
+      var lp = leftPx + 12;
+      if (lp + tw > rect.width) lp = leftPx - tw - 12;
+      tip.style.left = Math.max(0, lp) + "px";
+    }
+    function hide() {
+      [guide, dotT, dotP].forEach(function (el) { el.setAttribute("visibility", "hidden"); });
+      tip.classList.add("pi-hidden");
+    }
+    hit.addEventListener("mousemove", show);
+    hit.addEventListener("mouseleave", hide);
+    hit.addEventListener("touchstart", show, { passive: true });
+    hit.addEventListener("touchmove", show, { passive: true });
+    hit.addEventListener("touchend", function () { setTimeout(hide, 1500); });
+  }
+
+  function renderCompound() {
+    var sim = simulate();
+    $('[data-out="final"]').textContent = money(sim.final);
+    $('[data-out="contrib"]').textContent = money(sim.put);
+    var gEl = $('[data-out="growth"]'), growth = sim.final - sim.put;
+    gEl.textContent = (growth > 0 ? "+" : "") + money(growth);
+    gEl.className = "pi-stat-value " + (growth >= 0 ? "pi-pos" : "pi-neg");
+    $('[data-pi="legend-goal"]').classList.toggle("pi-hidden", !sim.goal);
+    drawChart(sim);
+
+    var note = $('[data-out="goalnote"]');
+    note.innerHTML = "";
+    var box = document.createElement("div");
+    var p = document.createElement("p");
+    box.appendChild(p);
+    if (sim.goal) {
+      if (sim.goalMonth >= 0) {
+        box.className = "pi-note pi-good";
+        var yrs = Math.floor(sim.goalMonth / 12), mos = sim.goalMonth % 12;
+        var when = "in about " + (yrs ? yrs + " year" + (yrs === 1 ? "" : "s") : "") + (yrs && mos ? " and " : "") + (mos ? mos + " month" + (mos === 1 ? "" : "s") : "");
+        p.textContent = sim.goalMonth === 0
+          ? "Your starting amount already reaches your target of " + money(sim.goal) + "."
+          : "On track! At this rate you'd reach your target of " + money(sim.goal) + " " + when + ".";
+      } else {
+        box.className = "pi-note pi-warn";
+        p.textContent = "Not quite there yet: you'd have " + money(sim.final) + " against your target of " + money(sim.goal) +
+          ". To hit it in " + sim.years + " years you'd need to add about " + money(Math.ceil(sim.needMonthly)) + " per month (about " +
+          money(Math.ceil(sim.needMonthly * 12 / 52)) + " per week) at " + pct(num(cIn.rate, -50, 100, 0)) + " a year.";
+      }
+    } else {
+      box.className = "pi-note";
+      p.textContent = "Tip: add a target amount (for example your \"freedom number\" — yearly spending × 25) to see if you're on track.";
+    }
+    note.appendChild(box);
+  }
+
+  Object.keys(cIn).forEach(function (k) {
+    cIn[k].addEventListener("input", renderCompound);
+    cIn[k].addEventListener("change", renderCompound);
+  });
+
+  var resizeTimer;
+  window.addEventListener("resize", function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { if (lastSim) drawChart(lastSim); }, 150);
+  });
+
+  /* ---------------- income calculator ---------------- */
+  var iPay = $('[data-i="pay"]'), iOther = $('[data-i="other"]');
+  var needs = $$('[data-o="need"]'), wants = $$('[data-o="want"]');
+  var lastSurplus = 0;
+
+  function sum(list) { return list.reduce(function (a, el) { return a + num(el, 0, 1e10, 0); }, 0); }
+  function setText(sel, txt) { $(sel).textContent = txt; }
+
+  function renderIncome() {
+    var inc = num(iPay, 0, 1e10, 0) + num(iOther, 0, 1e10, 0);
+    var nd = sum(needs), wt = sum(wants), out = nd + wt, left = inc - out;
+    lastSurplus = left;
+    setText('[data-inc="in"]', money(inc));
+    setText('[data-inc="out"]', money(out));
+    var leftEl = $('[data-inc="left"]');
+    leftEl.textContent = money(left);
+    leftEl.className = "pi-stat-value " + (left >= 0 ? "pi-pos" : "pi-neg");
+
+    var outPct = inc > 0 ? out / inc * 100 : (out > 0 ? Infinity : 0);
+    var savePct = inc > 0 ? left / inc * 100 : 0;
+    setText('[data-inc="outpct"]', inc > 0 ? pct(outPct) : "–");
+    setText('[data-inc="saverate"]', inc > 0 ? pct(savePct) : "–");
+    $('[data-inc="outbar"]').style.width = Math.min(100, isFinite(outPct) ? outPct : 100) + "%";
+    $('[data-inc="outbar"]').style.background = outPct > 100 ? "var(--pi-red)" : "var(--pi-accent)";
+    $('[data-inc="savebar"]').style.width = Math.max(0, Math.min(100, savePct)) + "%";
+
+    function share(v) { return inc > 0 ? money(v) + " (" + pct(v / inc * 100) + ")" : money(v); }
+    setText('[data-inc="needs"]', share(nd));
+    setText('[data-inc="wants"]', share(wt));
+    setText('[data-inc="saved"]', share(Math.max(0, left)));
+    setText('[data-inc="emergency"]', money(out * 3) + " – " + money(out * 6));
+
+    var v = $('[data-inc="verdict"]');
+    v.innerHTML = "";
+    var box = document.createElement("div"), p = document.createElement("p");
+    box.appendChild(p);
+    if (inc <= 0) {
+      box.className = "pi-note"; p.textContent = "Enter your monthly income to see your results.";
+    } else if (left < 0) {
+      box.className = "pi-note pi-bad";
+      p.textContent = "You're spending " + money(-left) + " more than you earn each month. Focus on cutting outgoings or increasing income before investing — start with Module 1 and 2.";
+    } else if (savePct < 10) {
+      box.className = "pi-note pi-warn";
+      p.textContent = "You're saving " + pct(savePct) + " of your income. A good first goal is 10%, then work up towards 20%+. Look at your \"wants\" for quick wins.";
+    } else if (savePct < 20) {
+      box.className = "pi-note";
+      p.textContent = "Good start — you're saving " + pct(savePct) + " of your income. Pushing to 20%+ would speed up your journey a lot.";
+    } else {
+      box.className = "pi-note pi-good";
+      p.textContent = "Great — you're saving " + pct(savePct) + " of your income. Build your emergency fund first, then put the rest to work.";
+    }
+    v.appendChild(box);
+    $('[data-pi="use-surplus"]').disabled = !(left > 0);
+  }
+
+  [iPay, iOther].concat(needs, wants).forEach(function (el) { el.addEventListener("input", renderIncome); });
+
+  $('[data-pi="use-surplus"]').addEventListener("click", function () {
+    if (lastSurplus <= 0) return;
+    cIn.amount.value = Math.floor(lastSurplus);
+    cIn.freq.value = "month";
+    renderCompound();
+    scrollToEl($('[data-anchor="compound"]'));
+  });
+
+  /* ---------------- start ---------------- */
+  function renderAll() { renderIncome(); renderCompound(); }
+  if (store(STORAGE_KEY)) showApp();
+})();
+</script>
