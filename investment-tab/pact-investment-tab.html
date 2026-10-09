@@ -172,6 +172,25 @@
 #pact-invest .pi-track{margin-top:20px;border:1px solid var(--pi-accent);border-radius:var(--pi-radius);padding:18px 20px;background:linear-gradient(135deg,var(--pi-accent-soft),transparent)}
 #pact-invest .pi-track-text{font-size:1.05rem;font-weight:700;margin:0 0 6px;white-space:pre-line}
 
+/* book a call */
+#pact-invest .pi-tab.pi-tab-cta{color:var(--pi-accent-2);border:1px solid var(--pi-accent)}
+#pact-invest .pi-tab.pi-tab-cta[aria-selected="true"]{color:#fff}
+#pact-invest .pi-cta{margin-top:24px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;justify-content:space-between;border:1px solid var(--pi-accent);border-radius:var(--pi-radius);padding:20px 22px;background:linear-gradient(135deg,rgba(139,92,246,.28),rgba(139,92,246,.06))}
+#pact-invest .pi-cta h3{margin:0 0 4px}
+#pact-invest .pi-cta p{margin:0;color:var(--pi-muted)}
+#pact-invest .pi-call{display:grid;grid-template-columns:1.2fr 1fr;gap:20px;align-items:start}
+@media (max-width:860px){#pact-invest .pi-call{grid-template-columns:1fr}}
+#pact-invest .pi-price{font-size:2.2rem;font-weight:800;color:#fff;line-height:1.1}
+#pact-invest .pi-price-sub{color:var(--pi-muted);font-weight:600;margin:4px 0 16px}
+#pact-invest .pi-call-box{border-color:var(--pi-accent);position:sticky;top:16px}
+#pact-invest .pi-call-box .pi-btn{width:100%}
+#pact-invest .pi-steps{display:grid;gap:12px;margin:18px 0 0;padding:0;list-style:none}
+#pact-invest .pi-steps li{display:flex;gap:14px;align-items:flex-start;margin:0}
+#pact-invest .pi-steps strong{display:block}
+#pact-invest .pi-lock{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;color:var(--pi-muted);margin-top:10px}
+#pact-invest .pi-soon{display:block;text-align:center;font-weight:700;color:var(--pi-amber);background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.35);border-radius:10px;padding:12px}
+#pact-invest .pi-paid{margin-bottom:20px}
+
 /* footer */
 #pact-invest .pi-footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--pi-border);font-size:.8rem;color:var(--pi-muted)}
 #pact-invest .pi-footer p{color:var(--pi-muted);margin:0 0 .5em}
@@ -206,6 +225,7 @@
     <nav class="pi-tabs" role="tablist" aria-label="Investment sections" data-pi="tabs">
       <button type="button" class="pi-tab" role="tab" data-tab="home" aria-selected="true">Get Started</button>
       <button type="button" class="pi-tab" role="tab" data-tab="calculators" aria-selected="false">Calculators</button>
+      <button type="button" class="pi-tab pi-tab-cta" role="tab" data-tab="call" aria-selected="false">Book a Call</button>
       <button type="button" class="pi-tab" role="tab" data-tab="trading" aria-selected="false">Trading</button>
       <button type="button" class="pi-tab" role="tab" data-tab="metals" aria-selected="false">Gold / Silver / Copper</button>
       <button type="button" class="pi-tab" role="tab" data-tab="stocks" aria-selected="false">Stocks</button>
@@ -234,6 +254,15 @@
       <div class="pi-track pi-hidden" data-pi="track">
         <p class="pi-track-text" data-pi="track-text"></p>
         <p class="pi-small pi-muted" style="margin:0">Past performance is not a reliable indicator of future results. Personal results are not typical and are not a promise of what you will achieve.</p>
+      </div>
+
+      <div class="pi-cta">
+        <div>
+          <span class="pi-eyebrow">1-to-1 call</span>
+          <h3 data-call="title">Book a call with our investment expert</h3>
+          <p><span data-call="summary">Get personal time to ask your questions.</span></p>
+        </div>
+        <button type="button" class="pi-btn" data-goto="call">See details &amp; book &rarr;</button>
       </div>
 
       <div class="pi-section" data-anchor="modules">
@@ -338,6 +367,42 @@
             </div>
           </details>
 
+        </div>
+      </div>
+    </section>
+
+    <!-- ========== BOOK A CALL (paid) ========== -->
+    <section role="tabpanel" data-panel="call" class="pi-hidden">
+      <div class="pi-note pi-good pi-paid pi-hidden" data-call="paid">
+        <p><strong>Payment received — thank you!</strong> If the booking page didn't open automatically, check your email for the confirmation and booking link.</p>
+      </div>
+      <div class="pi-topic-head"><span class="pi-pill">Paid 1-to-1 call</span></div>
+      <h2 data-call="title">Book a call with our investment expert</h2>
+      <div class="pi-call">
+        <div>
+          <p data-call="description"></p>
+          <div class="pi-card">
+            <h3>What you get</h3>
+            <ul data-call="includes"></ul>
+          </div>
+          <div class="pi-card" style="margin-top:16px">
+            <h3>How it works</h3>
+            <ol class="pi-steps">
+              <li><span class="pi-num">1</span><span><strong>Pay securely</strong><span class="pi-muted">Click the button and pay on the secure checkout page.</span></span></li>
+              <li><span class="pi-num">2</span><span><strong>Pick your time</strong><span class="pi-muted">After paying you're taken straight to the calendar to choose a slot.</span></span></li>
+              <li><span class="pi-num">3</span><span><strong>Join the call</strong><span class="pi-muted">You'll get a confirmation email with the call link and time.</span></span></li>
+            </ol>
+          </div>
+        </div>
+        <div class="pi-card pi-call-box">
+          <div class="pi-price pi-hidden" data-call="price"></div>
+          <div class="pi-price-sub pi-hidden" data-call="duration"></div>
+          <a class="pi-btn pi-hidden" data-call="checkout" href="#" target="_blank" rel="noopener noreferrer">Pay &amp; book your call</a>
+          <span class="pi-soon" data-call="soon">Booking opens soon</span>
+          <a class="pi-btn pi-btn-ghost pi-hidden" data-call="waitlist" href="#" style="margin-top:10px">Join the waitlist</a>
+          <div class="pi-lock pi-hidden" data-call="secure">&#128274; Secure payment &mdash; you book your time after paying</div>
+          <p class="pi-small pi-muted pi-hidden" data-call="policy" style="margin:14px 0 0"></p>
+          <p class="pi-small pi-muted" style="margin:14px 0 0">Calls are for education and general information only. They are not personal financial advice or a recommendation to buy or sell any investment.</p>
         </div>
       </div>
     </section>
@@ -771,6 +836,30 @@
       crashes: ""
     },
 
+    // Paid 1-to-1 call with the investment expert ("Book a Call" tab).
+    // checkoutUrl: ONE link that takes payment and then lets them book, e.g.
+    //   • a Calendly event with Stripe/PayPal payment switched on, or
+    //   • a Stripe Payment Link whose "after payment" redirect is the
+    //     calendar booking page.
+    // Leave "" until it's ready — the page shows "Booking opens soon".
+    expertCall: {
+      title: "Book a call with our investment expert",
+      summary: "Personal 1-to-1 time to ask your questions and talk through your plan",
+      description: "Get one-to-one time with our investment expert. Bring your questions on budgeting, investing, trading, crypto, property or anything covered in this section, and talk through your plan.",
+      includes: [
+        "A private 1-to-1 video call",
+        "Go through your goals and your numbers from the calculators",
+        "Ask anything about the topics in this section",
+        "Hear real experience from someone who's done it"
+      ],
+      price: "",          // e.g. "£99"
+      duration: "",       // e.g. "60-minute video call"
+      checkoutUrl: "",    // e.g. "https://buy.stripe.com/xxxx" or "https://calendly.com/name/call"
+      buttonText: "Pay & book your call",
+      waitlistEmail: "",  // optional: shows "Join the waitlist" while booking isn't open yet
+      policy: ""          // e.g. "Free rescheduling up to 24 hours before. Refunds within 14 days if the call hasn't happened."
+    },
+
     accountant: {
       name: "Work with a professional accountant",
       intro: "Want your tax handled properly? Our partner accountant can help you get it right and keep more of your returns.",
@@ -961,6 +1050,47 @@
       box.classList.remove("pi-hidden");
     }
   });
+
+  /* ---------------- book a call ---------------- */
+  (function () {
+    var c = CONFIG.expertCall || {};
+    function fill(key, txt) {
+      $$('[data-call="' + key + '"]').forEach(function (el) {
+        if (txt && String(txt).trim()) { el.textContent = txt; el.classList.remove("pi-hidden"); }
+      });
+    }
+    fill("title", c.title);
+    fill("summary", [c.summary, c.price, c.duration].filter(Boolean).join(" · "));
+    fill("description", c.description);
+    fill("price", c.price);
+    fill("duration", c.duration);
+    fill("policy", c.policy);
+    var ul = $('[data-call="includes"]');
+    (c.includes || []).forEach(function (s) { var li = document.createElement("li"); li.textContent = s; ul.appendChild(li); });
+    if (!ul.children.length) ul.parentNode.classList.add("pi-hidden");
+
+    var btn = $('[data-call="checkout"]');
+    if (c.checkoutUrl && /^https:\/\//i.test(c.checkoutUrl)) {
+      btn.href = c.checkoutUrl;
+      btn.textContent = c.buttonText || "Pay & book your call";
+      btn.classList.remove("pi-hidden");
+      $('[data-call="secure"]').classList.remove("pi-hidden");
+      $('[data-call="soon"]').classList.add("pi-hidden");
+    } else if (c.waitlistEmail && /^[^\s@]+@[^\s@]+$/.test(c.waitlistEmail)) {
+      var w = $('[data-call="waitlist"]');
+      w.href = "mailto:" + c.waitlistEmail + "?subject=" + encodeURIComponent("Waitlist: investment expert call");
+      w.classList.remove("pi-hidden");
+    }
+
+    // Optional "thank you" message: set the payment provider's success /
+    // return URL to this page with ?pact_call=paid on the end.
+    try {
+      if (/[?&]pact_call=paid(&|$)/.test(window.location.search)) {
+        $('[data-call="paid"]').classList.remove("pi-hidden");
+        root.setAttribute("data-pi-start", "call");
+      }
+    } catch (e) { /* ignore */ }
+  })();
 
   /* ---------------- accountant ---------------- */
   (function () {
@@ -1265,5 +1395,6 @@
   /* ---------------- start ---------------- */
   function renderAll() { renderIncome(); renderCompound(); }
   if (store(STORAGE_KEY)) showApp();
+  if (root.getAttribute("data-pi-start") === "call") selectTab("call");
 })();
 </script>
