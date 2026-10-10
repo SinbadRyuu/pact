@@ -102,6 +102,14 @@ Optional thank-you message: if the payment or booking tool lets you set a return
 
 > **Note:** the call is presented as education and general information, and the page says so. In the UK, giving someone a *personal recommendation* on what to invest in is regulated advice that needs FCA authorisation, so the expert should keep calls educational unless they're authorised.
 
+## Live preview on Vercel
+
+This branch includes a copy of the page at `apps/web/public/investment/index.html`, plus `apps/web/vercel.json`, so the Vercel preview for this branch shows the Investment tab. Open the branch's Vercel preview link; it goes straight to `/investment/`.
+
+`node build-preview.js` keeps that copy up to date.
+
+> ⚠️ If this branch is ever merged together with the trading onboarding app (which also lives in `apps/web`), **delete `apps/web/vercel.json` first**. It tells Vercel to serve a plain page and would stop the Next.js app from building. The page itself (`apps/web/public/investment/index.html`) can stay, and will be served at `/investment/index.html`.
+
 ## Business notes (not shown on the site)
 
 - **Accountant revenue share.** The page only links to the accountant's booking/payment page. Any optional fee, and the agreed split (e.g. 20% to PACT, or 40/40 with the accountant), should be in a **written agreement with the accountant** and paid by them. The split isn't shown publicly. To track referrals, add a code to the booking link (e.g. `https://calendly.com/accountant?utm_source=pact`).

@@ -1,4 +1,5 @@
-// Regenerates preview.html from pact-investment-tab.html.
+// Regenerates preview.html (and the Vercel preview copy at
+// apps/web/public/investment/index.html) from pact-investment-tab.html.
 // Run:  node build-preview.js
 // (Only needed if you edit pact-investment-tab.html and want an updated preview.)
 const fs = require("fs");
@@ -19,4 +20,9 @@ ${snippet}
 </html>
 `;
 fs.writeFileSync(path.join(__dirname, "preview.html"), page);
-console.log("preview.html updated");
+const webDir = path.join(__dirname, "..", "apps", "web", "public", "investment");
+fs.mkdirSync(webDir, { recursive: true });
+fs.writeFileSync(path.join(webDir, "index.html"), page
+  .replace("<title>PACT Investment Tab — Preview</title>", "<title>Investment — PACT</title>")
+  .replace("<!-- PREVIEW ONLY. Do not copy this file into the website — copy pact-investment-tab.html instead. -->\n", ""));
+console.log("preview.html and apps/web/public/investment/index.html updated");
