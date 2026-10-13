@@ -102,13 +102,11 @@ Optional thank-you message: if the payment or booking tool lets you set a return
 
 > **Note:** the call is presented as education and general information, and the page says so. In the UK, giving someone a *personal recommendation* on what to invest in is regulated advice that needs FCA authorisation, so the expert should keep calls educational unless they're authorised.
 
-## Live preview on Vercel
+## On the website (Vercel)
 
-This branch includes a copy of the page at `apps/web/public/investment/index.html`, plus `apps/web/vercel.json`, so the Vercel preview for this branch shows the Investment tab. Open the branch's Vercel preview link; it goes straight to `/investment/`.
+The Investment tab also lives inside the PACT web app at **`/investment`** (e.g. `https://your-site.vercel.app/investment`). The page is `apps/web/public/investment/index.html`, and `apps/web/next.config.mjs` maps `/investment` to it.
 
-`node build-preview.js` keeps that copy up to date.
-
-> ⚠️ If this branch is ever merged together with the trading onboarding app (which also lives in `apps/web`), **delete `apps/web/vercel.json` first**. It tells Vercel to serve a plain page and would stop the Next.js app from building. The page itself (`apps/web/public/investment/index.html`) can stay, and will be served at `/investment/index.html`.
+After editing `pact-investment-tab.html`, run `node build-preview.js` to update that copy too.
 
 ## Business notes (not shown on the site)
 
