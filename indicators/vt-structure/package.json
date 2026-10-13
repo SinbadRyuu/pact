@@ -1,0 +1,10 @@
+{
+  "name": "vt-structure",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "vt-structure.js",
+  "scripts": {
+    "test": "node --test"
+  }
+}

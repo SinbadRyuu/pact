@@ -1,0 +1,372 @@
+// VT Structure — market structure, Fibonacci retracement, rule-based trade levels and a
+// multi-timeframe dashboard. Built for VT Impact (vtimpact.com).
+//
+// It describes what price has done. Signals are rules applied to past candles, not forecasts,
+// and nothing here is financial advice.
+
+//@version=6
+indicator("VT Structure", "VT Structure", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 50, max_bars_back = 500)
+
+// ───────────────────────────── Inputs ─────────────────────────────
+
+grpS = "Market structure"
+swingLen   = input.int(10, "Swing length", minval = 2, maxval = 50, group = grpS, tooltip = "Bars on each side a high or low must exceed to count as a swing. Larger values give fewer, more significant swings.")
+breakSrc   = input.string("Close", "Break confirmed by", options = ["Close", "Wick"], group = grpS, tooltip = "Close: a candle must close beyond the swing. Wick: touching beyond it is enough.")
+showSwings = input.bool(true, "Label swing highs and lows", group = grpS)
+showStruct = input.bool(true, "Draw BOS and CHoCH", group = grpS)
+showRev    = input.bool(true, "Mark trend reversals", group = grpS)
+
+grpE = "Moving averages"
+showEma = input.bool(true, "Show moving averages", group = grpE)
+fastLen = input.int(21, "Fast EMA", minval = 2, maxval = 200, group = grpE)
+slowLen = input.int(50, "Slow EMA", minval = 3, maxval = 400, group = grpE)
+
+grpF = "Fibonacci retracement of the current leg"
+showFib  = input.bool(true, "Show retracement", group = grpF)
+fibA     = input.float(0.618, "Level A", minval = 0, maxval = 1, step = 0.001, group = grpF)
+fibB     = input.float(0.65, "Level B", minval = 0, maxval = 1, step = 0.001, group = grpF)
+fibC     = input.float(0.786, "Level C", minval = 0, maxval = 1, step = 0.001, group = grpF)
+showZone = input.bool(true, "Shade the zone between A and C", group = grpF)
+
+grpT = "Trade levels"
+showSignals = input.bool(true, "Show buy and sell signals", group = grpT)
+showTrade   = input.bool(true, "Draw entry, stop and targets for the latest signal", group = grpT)
+signalMode  = input.string("CHoCH only", "Signal on", options = ["CHoCH only", "CHoCH and BOS"], group = grpT, tooltip = "CHoCH only: signal when structure flips. CHoCH and BOS: also signal on every continuation break.")
+emaFilter   = input.bool(false, "Only when the EMAs agree", group = grpT, tooltip = "Buys only when the fast EMA is above the slow one, sells only when it is below.")
+stopAtr     = input.float(0.25, "Stop buffer beyond the leg (× ATR 14)", minval = 0, maxval = 5, step = 0.05, group = grpT)
+tp1R        = input.float(1.0, "Target 1 (× risk)", minval = 0.1, step = 0.1, group = grpT)
+tp2R        = input.float(2.0, "Target 2 (× risk)", minval = 0.1, step = 0.1, group = grpT)
+tp3R        = input.float(3.0, "Target 3 (× risk)", minval = 0.1, step = 0.1, group = grpT)
+extendBars  = input.int(40, "Extend levels to the right (bars)", minval = 0, maxval = 400, group = grpT)
+
+grpD = "Dashboard"
+showDash = input.bool(true, "Show dashboard", group = grpD)
+dashPos  = input.string("Top right", "Position", options = ["Top right", "Top left", "Bottom right", "Bottom left"], group = grpD)
+tf1      = input.timeframe("5", "Timeframe 1", group = grpD)
+tf2      = input.timeframe("15", "Timeframe 2", group = grpD)
+tf3      = input.timeframe("60", "Timeframe 3", group = grpD)
+
+grpC = "Colours"
+bullCol  = input.color(#22c55e, "Bullish", group = grpC)
+bearCol  = input.color(#ef4444, "Bearish", group = grpC)
+fastCol  = input.color(#4ade80, "Fast EMA", group = grpC)
+slowCol  = input.color(#4f46e5, "Slow EMA", group = grpC)
+fibCol   = input.color(#2dd4bf, "Retracement", group = grpC)
+swingCol = input.color(#f59e0b, "Swing labels", group = grpC)
+accent   = input.color(#4338ca, "Dashboard accent", group = grpC)
+
+// ───────────────────────────── Core series ─────────────────────────────
+
+emaFast = ta.ema(close, fastLen)
+emaSlow = ta.ema(close, slowLen)
+atr     = ta.atr(14)
+[diPlus, diMinus, adx] = ta.dmi(14, 14)
+volAvg  = ta.sma(volume, 20)
+
+plot(showEma ? emaFast : na, "Fast EMA", fastCol, 2)
+plot(showEma ? emaSlow : na, "Slow EMA", slowCol, 2)
+
+// ───────────────────────────── Market structure ─────────────────────────────
+// A swing high is broken when price closes (or wicks) above it. If the trend was not already up,
+// that break is a change of character (CHoCH); if it was, it is a break of structure (BOS).
+
+var float shPrice  = na
+var int   shBar    = na
+var bool  shBroken = true
+var float slPrice  = na
+var int   slBar    = na
+var bool  slBroken = true
+var int   trend    = 0
+
+// The current leg: from the extreme the break started at (legFrom) to the furthest price since (legTo).
+var float legFrom    = na
+var int   legFromBar = na
+var float legTo      = na
+var int   legToBar   = na
+var int   breakBar   = na
+
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+
+if not na(ph)
+    if showSwings
+        label.new(bar_index - swingLen, ph, na(shPrice) ? "Swing High" : ph > shPrice ? "Swing High · HH" : "Swing High · LH", style = label.style_label_down, color = color(na), textcolor = swingCol, size = size.small)
+    shPrice  := ph
+    shBar    := bar_index - swingLen
+    shBroken := false
+
+if not na(pl)
+    if showSwings
+        label.new(bar_index - swingLen, pl, na(slPrice) ? "Swing Low" : pl > slPrice ? "Swing Low · HL" : "Swing Low · LL", style = label.style_label_up, color = color(na), textcolor = swingCol, size = size.small)
+    slPrice  := pl
+    slBar    := bar_index - swingLen
+    slBroken := false
+
+upSrc = breakSrc == "Close" ? close : high
+dnSrc = breakSrc == "Close" ? close : low
+
+bool bullBreak = not shBroken and not na(shPrice) and upSrc > shPrice
+bool bearBreak = not slBroken and not na(slPrice) and dnSrc < slPrice
+if bullBreak and bearBreak
+    // An outside bar broke both sides; let the candle's direction decide.
+    bullBreak := close >= open
+    bearBreak := not bullBreak
+
+bullChoch = bullBreak and trend <= 0
+bullBos   = bullBreak and trend == 1
+bearChoch = bearBreak and trend >= 0
+bearBos   = bearBreak and trend == -1
+
+drawBreak(int fromBar, float price, string tag, color col, bool isChoch, bool above) =>
+    line.new(fromBar, price, bar_index, price, color = col, width = 1, style = isChoch ? line.style_dashed : line.style_solid)
+    label.new(int((fromBar + bar_index) / 2), price, tag, style = above ? label.style_label_down : label.style_label_up, color = color(na), textcolor = col, size = size.tiny)
+
+if bullBreak
+    shBroken := true
+    if showStruct
+        drawBreak(shBar, shPrice, bullChoch ? "CHoCH" : "BOS", bullCol, bullChoch, true)
+    // The leg starts at the lowest low since the broken swing high was made.
+    span = math.min(bar_index - shBar, 499)
+    lo = low
+    loBar = bar_index
+    for i = 0 to span
+        if low[i] < lo
+            lo    := low[i]
+            loBar := bar_index - i
+    hi = high
+    hiBar = bar_index
+    for i = 0 to bar_index - loBar
+        if high[i] > hi
+            hi    := high[i]
+            hiBar := bar_index - i
+    legFrom    := lo
+    legFromBar := loBar
+    legTo      := hi
+    legToBar   := hiBar
+    breakBar   := bar_index
+    trend      := 1
+
+if bearBreak
+    slBroken := true
+    if showStruct
+        drawBreak(slBar, slPrice, bearChoch ? "CHoCH" : "BOS", bearCol, bearChoch, false)
+    // The leg starts at the highest high since the broken swing low was made.
+    span = math.min(bar_index - slBar, 499)
+    hi = high
+    hiBar = bar_index
+    for i = 0 to span
+        if high[i] > hi
+            hi    := high[i]
+            hiBar := bar_index - i
+    lo = low
+    loBar = bar_index
+    for i = 0 to bar_index - hiBar
+        if low[i] < lo
+            lo    := low[i]
+            loBar := bar_index - i
+    legFrom    := hi
+    legFromBar := hiBar
+    legTo      := lo
+    legToBar   := loBar
+    breakBar   := bar_index
+    trend      := -1
+
+// Extend the leg while price keeps going in the trend's direction.
+if not bullBreak and not bearBreak
+    if trend == 1 and high > legTo
+        legTo    := high
+        legToBar := bar_index
+    if trend == -1 and low < legTo
+        legTo    := low
+        legToBar := bar_index
+
+plotshape(showRev and bullChoch, "Trend reversal up", shape.triangleup, location.belowbar, bullCol, size = size.tiny)
+plotshape(showRev and bearChoch, "Trend reversal down", shape.triangledown, location.abovebar, bearCol, size = size.tiny)
+
+// ───────────────────────────── Signals and trade levels ─────────────────────────────
+
+withBos = signalMode == "CHoCH and BOS"
+buySig  = (bullChoch or (withBos and bullBos)) and (not emaFilter or emaFast > emaSlow) and not na(atr)
+sellSig = (bearChoch or (withBos and bearBos)) and (not emaFilter or emaFast < emaSlow) and not na(atr)
+
+plotshape(showSignals and buySig, "Buy signal", shape.labelup, location.belowbar, bullCol, text = "BUY", textcolor = color.white, size = size.small)
+plotshape(showSignals and sellSig, "Sell signal", shape.labeldown, location.abovebar, bearCol, text = "SELL", textcolor = color.white, size = size.small)
+
+var int    tDir     = 0
+var int    tBar     = na
+var float  tEntry   = na
+var float  tStop    = na
+var float  tTp1     = na
+var float  tTp2     = na
+var float  tTp3     = na
+var int    tHit     = 0
+var bool   tStopped = false
+
+if buySig or sellSig
+    tDir     := buySig ? 1 : -1
+    tBar     := bar_index
+    tEntry   := close
+    tStop    := buySig ? legFrom - atr * stopAtr : legFrom + atr * stopAtr
+    risk      = math.abs(tEntry - tStop)
+    tTp1     := tEntry + tDir * risk * tp1R
+    tTp2     := tEntry + tDir * risk * tp2R
+    tTp3     := tEntry + tDir * risk * tp3R
+    tHit     := 0
+    tStopped := false
+else if tDir != 0 and not tStopped and tHit < 3
+    // The stop is checked first, so a bar that touches both counts as stopped.
+    if (tDir == 1 and low <= tStop) or (tDir == -1 and high >= tStop)
+        tStopped := true
+    else
+        favourable = tDir == 1 ? high : low
+        for [n, tp] in array.from(tTp1, tTp2, tTp3)
+            if tHit == n and tDir * (favourable - tp) >= 0
+                tHit := n + 1
+
+tradeStatus() =>
+    tStopped ? (tHit > 0 ? "TP" + str.tostring(tHit) + " then stop" : "Stop hit") : tHit == 0 ? "Open" : "TP" + str.tostring(tHit) + " hit"
+
+// ───────────────────────────── Drawings refreshed on the last bar ─────────────────────────────
+
+var line[]  fibLines  = array.new<line>()
+var label[] fibLabels = array.new<label>()
+var box     fibZone   = na
+var line[]  tLines    = array.new<line>()
+var label[] tLabels   = array.new<label>()
+
+clearDrawings() =>
+    for l in fibLines
+        line.delete(l)
+    for l in fibLabels
+        label.delete(l)
+    for l in tLines
+        line.delete(l)
+    for l in tLabels
+        label.delete(l)
+    array.clear(fibLines)
+    array.clear(fibLabels)
+    array.clear(tLines)
+    array.clear(tLabels)
+
+fibPrice(float r) =>
+    legTo + (legFrom - legTo) * r
+
+levelLine(int x1, float price, color col, string name, string style, line[] lines, label[] labels) =>
+    x2 = bar_index + extendBars
+    lines.push(line.new(x1, price, x2, price, color = col, width = 1, style = style))
+    labels.push(label.new(x2, price, name + "  " + str.tostring(price, format.mintick), style = label.style_label_left, color = color.new(col, 15), textcolor = color.white, size = size.small))
+
+if barstate.islast
+    clearDrawings()
+    box.delete(fibZone)
+
+    if showFib and trend != 0 and not na(legFrom) and not na(legTo)
+        x1 = breakBar
+        for r in array.from(0.0, fibA, fibB, fibC, 1.0)
+            p = fibPrice(r)
+            fibLines.push(line.new(x1, p, bar_index + extendBars, p, color = color.new(fibCol, r == 0.0 or r == 1.0 ? 40 : 0), width = 1))
+            fibLabels.push(label.new(x1, p, str.tostring(r) + " (" + str.tostring(p, format.mintick) + ")", style = label.style_label_right, color = color(na), textcolor = fibCol, size = size.small))
+        if showZone
+            fibZone := box.new(x1, math.max(fibPrice(fibA), fibPrice(fibC)), bar_index + extendBars, math.min(fibPrice(fibA), fibPrice(fibC)), border_color = color(na), bgcolor = color.new(fibCol, 85))
+
+    if showTrade and tDir != 0
+        entryCol = color.new(color.gray, 0)
+        tpCol = tDir == 1 ? bullCol : bearCol
+        stopCol = tDir == 1 ? bearCol : bullCol
+        levelLine(tBar, tEntry, entryCol, "Entry", line.style_solid, tLines, tLabels)
+        levelLine(tBar, tStop, stopCol, "SL", line.style_solid, tLines, tLabels)
+        levelLine(tBar, tTp1, tpCol, "TP1", line.style_dashed, tLines, tLabels)
+        levelLine(tBar, tTp2, tpCol, "TP2", line.style_dashed, tLines, tLabels)
+        levelLine(tBar, tTp3, tpCol, "TP3", line.style_dashed, tLines, tLabels)
+
+// ───────────────────────────── Dashboard ─────────────────────────────
+
+// The same structure rules, reduced to a trend state, for the higher timeframes.
+structTrend(int len) =>
+    var float h  = na
+    var float l  = na
+    var bool  hb = true
+    var bool  lb = true
+    var int   t  = 0
+    ph_ = ta.pivothigh(high, len, len)
+    pl_ = ta.pivotlow(low, len, len)
+    if not na(ph_)
+        h  := ph_
+        hb := false
+    if not na(pl_)
+        l  := pl_
+        lb := false
+    if not hb and close > h
+        hb := true
+        t  := 1
+    if not lb and close < l
+        lb := true
+        t  := -1
+    t
+
+// [1] with lookahead_on reads the last closed higher-timeframe bar, so the values do not repaint.
+htfTrend(string tf) =>
+    request.security(syminfo.tickerid, tf, structTrend(swingLen)[1], lookahead = barmerge.lookahead_on)
+
+t1 = htfTrend(tf1)
+t2 = htfTrend(tf2)
+t3 = htfTrend(tf3)
+
+inSession(string sess, string tz) =>
+    not na(time(timeframe.period, sess, tz))
+
+asia   = inSession("0900-1800", "Asia/Tokyo")
+london = inSession("0800-1700", "Europe/London")
+ny     = inSession("0800-1700", "America/New_York")
+
+dashPosition() =>
+    switch dashPos
+        "Top left"     => position.top_left
+        "Bottom right" => position.bottom_right
+        "Bottom left"  => position.bottom_left
+        => position.top_right
+
+var table dash = table.new(dashPosition(), 2, 9, border_width = 1, border_color = color.new(color.black, 0))
+
+cell(int row, string key, string value, color bg) =>
+    table.cell(dash, 0, row, key, text_color = color.white, bgcolor = color.new(#1f2937, 0), text_size = size.small)
+    table.cell(dash, 1, row, value, text_color = color.white, bgcolor = bg, text_size = size.small)
+
+trendCell(int row, string tf, int t) =>
+    lower = timeframe.in_seconds(tf) < timeframe.in_seconds()
+    tfName = timeframe.in_seconds(tf) % 86400 == 0 ? tf : timeframe.in_seconds(tf) >= 3600 ? "H" + str.tostring(timeframe.in_seconds(tf) / 3600) : tf
+    cell(row, tfName, lower ? "n/a" : t == 1 ? "▲" : t == -1 ? "▼" : "–", lower or t == 0 ? color.new(color.gray, 30) : t == 1 ? bullCol : bearCol)
+
+if showDash and barstate.islast
+    table.cell(dash, 0, 0, "VT STRUCTURE", text_color = color.white, bgcolor = color.new(#111827, 0), text_size = size.small)
+    table.cell(dash, 1, 0, "v1", text_color = color.white, bgcolor = accent, text_size = size.small)
+
+    cell(1, "Trend", trend == 1 ? "Bullish" : trend == -1 ? "Bearish" : "Undecided", trend == 1 ? bullCol : trend == -1 ? bearCol : accent)
+
+    strength = na(adx) ? "n/a" : adx >= 25 ? "Strong" : adx >= 20 ? "Moderate" : "Weak"
+    cell(2, "Strength", strength, accent)
+
+    volRatio = volAvg > 0 ? volume / volAvg : na
+    volText = na(volRatio) ? "n/a" : volRatio >= 1.5 ? "High" : volRatio <= 0.7 ? "Low" : "Normal"
+    cell(3, "Volume", volText, accent)
+
+    sessText = london and ny ? "London / NY" : ny ? "New York" : london ? "London" : asia ? "Asia" : "Off hours"
+    cell(4, "Session", sessText, accent)
+
+    trendCell(5, tf1, t1)
+    trendCell(6, tf2, t2)
+    trendCell(7, tf3, t3)
+
+    sigText = tDir == 0 ? "None yet" : (tDir == 1 ? "Buy · " : "Sell · ") + tradeStatus()
+    cell(8, "Signal", sigText, tDir == 0 ? accent : tDir == 1 ? bullCol : bearCol)
+
+// ───────────────────────────── Alerts ─────────────────────────────
+// For VT Impact: create the alert on one of these conditions, turn on "Webhook URL", paste the
+// webhook address and message from your script's page on VT Impact, and set "side" to match.
+
+alertcondition(buySig, "Buy signal", "VT Structure: buy signal on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(sellSig, "Sell signal", "VT Structure: sell signal on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bullChoch, "Bullish CHoCH", "VT Structure: bullish change of character on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bearChoch, "Bearish CHoCH", "VT Structure: bearish change of character on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bullBos, "Bullish BOS", "VT Structure: bullish break of structure on {{ticker}} ({{interval}}) at {{close}}")
+alertcondition(bearBos, "Bearish BOS", "VT Structure: bearish break of structure on {{ticker}} ({{interval}}) at {{close}}")
