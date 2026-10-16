@@ -7,10 +7,10 @@
 | **Demand / supply zones** | **The place price turned from.** On each break of structure: the wick of the **low that broke the high** (the lowest low between the broken swing high and the candle that closed above it). Supply is the mirror. Drawn as a thin band from that candle to the right, labelled `DEMAND · 82`, then `T1`, `T2` per visit, and faded when mitigated. Removed when a candle **closes** through it. Shows the 3 nearest per side. |
 | **Order blocks** | **The candle the move started from:** the last down-close candle (bullish) or up-close candle (bearish) at or before that low/high. Its full wick range by default. Only kept if the move from it was strong: at least 1.5 ATR, 2 strong candles, and the break within 30 candles. Labelled `OB`, with a thicker border when it sits on a zone. |
 | **Breaker blocks** | A failed order block (a candle closed through it) flips role and is shown as `BB`, purple and dashed, until price closes back through it. |
-| **Higher-timeframe zones** | 15m, 1H and 4H zones on lower charts (`1H DEMAND · 88`), from **closed** higher-timeframe candles only. |
+| **4H zones** | 4H demand and supply on lower charts (`4H DEMAND · 88`), from **closed** 4H candles only. Every timeframe also shows its own zones. |
 | **Fair value gaps** | Three-candle gaps of at least 0.3 ATR, removed once filled. |
 | **BOS / CHoCH** | Drawn when the breaking candle closes. |
-| **Sessions** (UK time) | Asia 01:00–04:50, London 07:00–09:55, New York AM 13:30–15:55, New York PM 18:30–20:55. |
+| **Sessions** (UK time, outlined boxes) | Asia 01:00–04:50, London 07:00–09:55, New York AM 13:30–15:55, New York PM 18:30–20:55. |
 
 There are no buy/sell signals and no Fibonacci.
 

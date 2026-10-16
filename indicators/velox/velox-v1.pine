@@ -1,5 +1,5 @@
 // Velox V1 — supply & demand zones, order blocks, breaker blocks, fair value gaps, market structure,
-// trading sessions and higher-timeframe zones, with the VT logo as a faint watermark. PACT Finance.
+// trading sessions and 4H zones. PACT Finance.
 //
 // DEMAND ZONE = the place price turned from: the wick of the low that broke the high (the lowest low
 //   between a swing high and the candle that closed above it). Supply is the mirror.
@@ -71,15 +71,10 @@ showFvg = input.bool(true, "Show FVGs", group = grpFvg)
 fvgMin  = input.float(0.3, "Min size (× ATR)", minval = 0, step = 0.05, group = grpFvg)
 maxFvg  = input.int(6, "Max unfilled FVGs shown", minval = 1, maxval = 50, group = grpFvg)
 
-grpHtf = "Higher-timeframe zones"
-showHtf  = input.bool(true, "Show higher-timeframe zones", group = grpHtf, tooltip = "Only timeframes above the chart's are shown, using closed candles only.")
-htf1On   = input.bool(true, "", inline = "h1", group = grpHtf)
-htf1     = input.timeframe("15", "", inline = "h1", group = grpHtf)
-htf2On   = input.bool(true, "", inline = "h2", group = grpHtf)
-htf2     = input.timeframe("60", "", inline = "h2", group = grpHtf)
-htf3On   = input.bool(true, "", inline = "h3", group = grpHtf)
-htf3     = input.timeframe("240", "", inline = "h3", group = grpHtf)
-htfPerSide = input.int(2, "Zones per side per timeframe", minval = 1, maxval = 3, group = grpHtf)
+grpHtf = "4H zones"
+showHtf    = input.bool(true, "Show 4H demand and supply zones", group = grpHtf, tooltip = "Shown on charts below 4H, from closed 4H candles only. The chart's own timeframe always has its own zones.")
+htf        = input.timeframe("240", "Higher timeframe", group = grpHtf)
+htfPerSide = input.int(3, "4H zones per side", minval = 1, maxval = 3, group = grpHtf)
 
 grpC = "Colours"
 demandCol = input.color(#26c6da, "Demand", group = grpC)
@@ -90,12 +85,6 @@ bbCol     = input.color(#a855f7, "Breaker block", group = grpC)
 fvgBull   = input.color(#22c55e, "Bullish FVG", group = grpC)
 fvgBear   = input.color(#f43f5e, "Bearish FVG", group = grpC)
 extendR   = input.int(20, "Extend blocks and FVGs right (candles)", minval = 0, maxval = 300, group = grpC)
-
-grpLogo = "VT logo watermark"
-showLogo    = input.bool(true, "Show VT logo behind the chart", group = grpLogo)
-logoOpacity = input.int(5, "Opacity %", minval = 1, maxval = 100, group = grpLogo)
-logoBars    = input.int(150, "Width (candles)", minval = 20, maxval = 1000, group = grpLogo)
-logoCol     = input.color(#7c3aed, "Colour", group = grpLogo)
 
 // Fixed: ATR length and the strength weights (out of 100), as in the engine.
 ATR_LEN = 14
@@ -467,11 +456,7 @@ htfPack(int tfSec) =>
 chartSec = timeframe.in_seconds()
 S = velox(barstate.isconfirmed, chartSec)
 
-htfOn(bool on, string tf) =>
-    showHtf and on and timeframe.in_seconds(tf) > chartSec
-p1 = request.security(syminfo.tickerid, htf1, htfPack(timeframe.in_seconds(htf1))[1], lookahead = barmerge.lookahead_on)
-p2 = request.security(syminfo.tickerid, htf2, htfPack(timeframe.in_seconds(htf2))[1], lookahead = barmerge.lookahead_on)
-p3 = request.security(syminfo.tickerid, htf3, htfPack(timeframe.in_seconds(htf3))[1], lookahead = barmerge.lookahead_on)
+htfPacked = request.security(syminfo.tickerid, htf, htfPack(timeframe.in_seconds(htf))[1], lookahead = barmerge.lookahead_on)
 
 // ═════════════════════════════ Sessions ═════════════════════════════
 
@@ -486,7 +471,7 @@ sessionBox(bool on, string sess, string name, color col) =>
     if inS and not inS[1]
         hi := high
         lo := low
-        b := box.new(bar_index, hi, bar_index, lo, border_color = color.new(col, 30), bgcolor = color.new(col, 90), text = name, text_color = col, text_size = size.small, text_valign = text.align_top, text_halign = text.align_center)
+        b := box.new(bar_index, hi, bar_index, lo, border_color = col, border_width = 1, bgcolor = color(na), text = name, text_color = col, text_size = size.small, text_valign = text.align_top, text_halign = text.align_center)
     else if inS and not na(b)
         hi := math.max(hi, high)
         lo := math.min(lo, low)
@@ -571,50 +556,14 @@ if barstate.islast
                 drawn.push(box.new(g.originTime, g.top, time + extendR * barMs, g.bottom, xloc = xloc.bar_time, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right))
                 shown += 1
 
-    // Higher-timeframe zones, from closed higher-timeframe candles only.
-    for k = 0 to 2
-        tf = k == 0 ? htf1 : k == 1 ? htf2 : htf3
-        on = k == 0 ? htf1On : k == 1 ? htf2On : htf3On
-        packed = k == 0 ? p1 : k == 1 ? p2 : p3
-        if htfOn(on, tf) and not na(packed) and str.length(packed) > 0
-            name = tfName(timeframe.in_seconds(tf))
-            for entry in str.split(packed, ";")
-                f = str.split(entry, "|")
-                if f.size() == 6
-                    isD = f.get(0) == "D"
-                    zoneBox(int(str.tonumber(f.get(3))), str.tonumber(f.get(1)), str.tonumber(f.get(2)), isD ? demandCol : supplyCol, f.get(5), name + " " + (isD ? "DEMAND" : "SUPPLY") + " · " + f.get(4) + (f.get(5) == "mitigated" ? " · mitigated" : ""), 2)
-
-// ═════════════════════════════ VT logo watermark ═════════════════════════════
-// The VT mark as two filled shapes (Pine cannot load images), stretched over the last `logoBars`
-// candles and the middle of their price range, redrawn on the last candle.
-
-var array<polyline> logoShapes = array.new<polyline>()
-logoHi = ta.highest(high, logoBars)
-logoLo = ta.lowest(low, logoBars)
-
-// Outline points on a 1160 × 670 grid, y downwards: [x0, y0, x1, y1, …].
-logoShape(array<float> xy, int x0, float yTop, float yBot, int width, color col) =>
-    array<chart.point> pts = array.new<chart.point>()
-    for i = 0 to int(xy.size() / 2) - 1
-        px = xy.get(2 * i)
-        py = xy.get(2 * i + 1)
-        pts.push(chart.point.from_index(x0 + int(math.round(px / 1160 * width)), yTop - py / 670 * (yTop - yBot)))
-    polyline.new(pts, curved = false, closed = true, xloc = xloc.bar_index, line_color = color.new(col, 100), fill_color = col)
-
-if barstate.islast
-    for p in logoShapes
-        p.delete()
-    logoShapes.clear()
-    if showLogo and not na(logoHi) and not na(logoLo) and logoHi > logoLo
-        rng = logoHi - logoLo
-        yTop = logoHi - 0.15 * rng
-        yBot = logoLo + 0.15 * rng
-        x0 = bar_index - logoBars
-        col = color.new(logoCol, 100 - logoOpacity)
-        // V
-        logoShapes.push(logoShape(array.from(0.0, 0.0, 260.0, 0.0, 410.0, 245.0, 565.0, 0.0, 700.0, 0.0, 375.0, 530.0), x0, yTop, yBot, logoBars, col))
-        // T: the bar, then the stem slanting down to the left
-        logoShapes.push(logoShape(array.from(760.0, 0.0, 1160.0, 0.0, 1110.0, 90.0, 870.0, 90.0, 510.0, 670.0, 440.0, 670.0, 780.0, 90.0, 730.0, 90.0), x0, yTop, yBot, logoBars, col))
+    // 4H zones, from closed 4H candles only.
+    if showHtf and timeframe.in_seconds(htf) > chartSec and not na(htfPacked) and str.length(htfPacked) > 0
+        name = tfName(timeframe.in_seconds(htf))
+        for entry in str.split(htfPacked, ";")
+            f = str.split(entry, "|")
+            if f.size() == 6
+                isD = f.get(0) == "D"
+                zoneBox(int(str.tonumber(f.get(3))), str.tonumber(f.get(1)), str.tonumber(f.get(2)), isD ? demandCol : supplyCol, f.get(5), name + " " + (isD ? "DEMAND" : "SUPPLY") + " · " + f.get(4) + (f.get(5) == "mitigated" ? " · mitigated" : ""), 2)
 
 // ═════════════════════════════ Alerts (on closed candles) ═════════════════════════════
 
