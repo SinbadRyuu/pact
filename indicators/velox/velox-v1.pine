@@ -1,0 +1,571 @@
+// Velox V1 — supply & demand, order blocks, breaker blocks, fair value gaps, market structure,
+// trading sessions, Fibonacci and rule-based signals. PACT Finance.
+//
+// Zones follow the Velox engine rules (packages/velox): a confirmed swing, a quiet base, and a strong
+// departure measured in ATR. Signals are rules applied to past candles, not forecasts. Not financial advice.
+
+//@version=6
+indicator("Velox V1", "Velox V1", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+
+// ═════════════════════════════ Inputs ═════════════════════════════
+
+grpSes = "Sessions (UK time)"
+showSessions = input.bool(true, "Show session boxes", group = grpSes)
+sesTz        = input.string("Europe/London", "Time zone", group = grpSes, tooltip = "Europe/London follows UK clock changes (GMT/BST).")
+sesDays      = input.int(5, "Days to show", minval = 1, maxval = 30, group = grpSes)
+showAsia     = input.bool(true, "Asia", inline = "asia", group = grpSes)
+asiaSess     = input.session("0100-0450", "", inline = "asia", group = grpSes)
+asiaCol      = input.color(#ef4444, "", inline = "asia", group = grpSes)
+showLondon   = input.bool(true, "London", inline = "lon", group = grpSes)
+londonSess   = input.session("0700-0955", "", inline = "lon", group = grpSes)
+londonCol    = input.color(#06b6d4, "", inline = "lon", group = grpSes)
+showNyAm     = input.bool(true, "New York AM", inline = "nyam", group = grpSes)
+nyAmSess     = input.session("1330-1555", "", inline = "nyam", group = grpSes)
+nyAmCol      = input.color(#f97316, "", inline = "nyam", group = grpSes)
+showNyPm     = input.bool(true, "New York PM", inline = "nypm", group = grpSes)
+nyPmSess     = input.session("1830-2055", "", inline = "nypm", group = grpSes)
+nyPmCol      = input.color(#3b82f6, "", inline = "nypm", group = grpSes)
+
+grpStr = "Market structure"
+swingLen   = input.int(3, "Swing length", minval = 1, maxval = 50, group = grpStr, tooltip = "Candles each side of a swing. A swing is confirmed this many candles after it happens.")
+showStruct = input.bool(true, "Show BOS / CHoCH", group = grpStr)
+
+grpZone = "Supply & demand zones"
+showZones   = input.bool(true, "Show zones", group = grpZone)
+zoneWidth   = input.string("Body-wick", "Zone edges", options = ["Body-wick", "Wick", "Body"], group = grpZone, tooltip = "Body-wick: far edge at the wick, near edge at the body (default).")
+dispATR     = input.float(1.5, "Departure (× ATR)", minval = 0.1, step = 0.1, group = grpZone, tooltip = "Price must close this far beyond the zone …")
+depBars     = input.int(6, "… within (candles)", minval = 1, maxval = 50, group = grpZone)
+maxBase     = input.int(3, "Max base candles", minval = 1, maxval = 10, group = grpZone)
+baseRange   = input.float(1.0, "Base candle max range (× ATR)", minval = 0.1, step = 0.1, group = grpZone)
+minWidthATR = input.float(0.1, "Min zone height (× ATR)", minval = 0, step = 0.05, group = grpZone)
+maxWidthATR = input.float(1.5, "Max zone height (× ATR)", minval = 0.1, step = 0.1, group = grpZone)
+exitATR     = input.float(0.5, "Leave distance for a new touch (× ATR)", minval = 0, step = 0.1, group = grpZone)
+mitDepth    = input.float(0.5, "Mitigated at depth", minval = 0.05, maxval = 1, step = 0.05, group = grpZone)
+maxZones    = input.int(4, "Max zones per side", minval = 1, maxval = 20, group = grpZone)
+showMitigated = input.bool(true, "Keep mitigated zones (faded)", group = grpZone)
+
+grpOb = "Order blocks & breaker blocks"
+showOb      = input.bool(true, "Show order blocks", group = grpOb)
+showBb      = input.bool(true, "Show breaker blocks", group = grpOb)
+obWidth     = input.string("Wick", "Block edges", options = ["Wick", "Body"], group = grpOb)
+maxBlocks   = input.int(4, "Max blocks per side", minval = 1, maxval = 20, group = grpOb)
+
+grpFvg = "Fair value gaps"
+showFvg  = input.bool(true, "Show FVGs", group = grpFvg)
+fvgMin   = input.float(0.3, "Min size (× ATR)", minval = 0, step = 0.05, group = grpFvg)
+maxFvg   = input.int(6, "Max unfilled FVGs shown", minval = 1, maxval = 50, group = grpFvg)
+
+grpFib = "Fibonacci (latest swing high ↔ swing low)"
+showFib = input.bool(true, "Show Fibonacci", group = grpFib)
+fibA    = input.float(0.618, "Level A", minval = 0, maxval = 1, step = 0.001, group = grpFib)
+fibB    = input.float(0.65, "Level B", minval = 0, maxval = 1, step = 0.001, group = grpFib)
+fibC    = input.float(0.786, "Level C", minval = 0, maxval = 1, step = 0.001, group = grpFib)
+
+grpSig = "Signals"
+showSignals = input.bool(true, "Show buy / sell", group = grpSig)
+showTrade   = input.bool(true, "Draw entry, SL and TP of the latest signal", group = grpSig)
+minStrength = input.int(60, "Min zone strength for a signal", minval = 0, maxval = 100, group = grpSig)
+stopBuf     = input.float(0.1, "SL beyond the zone (× ATR)", minval = 0, step = 0.05, group = grpSig)
+
+grpC = "Colours & layout"
+demandCol = input.color(#22c55e, "Demand", group = grpC)
+supplyCol = input.color(#ef4444, "Supply", group = grpC)
+obBullCol = input.color(#3b82f6, "Bullish order block", group = grpC)
+obBearCol = input.color(#f59e0b, "Bearish order block", group = grpC)
+bbCol     = input.color(#a855f7, "Breaker block", group = grpC)
+fvgBull   = input.color(#14b8a6, "Bullish FVG", group = grpC)
+fvgBear   = input.color(#f43f5e, "Bearish FVG", group = grpC)
+fibCol    = input.color(#2dd4bf, "Fibonacci", group = grpC)
+extendR   = input.int(15, "Extend boxes right (candles)", minval = 0, maxval = 200, group = grpC)
+
+// ═════════════════════════════ Types & shared state ═════════════════════════════
+
+type Pending
+    bool  demand
+    float near
+    float far
+    int   b0
+    int   b1
+    float atrv
+    int   swingBar
+
+type Zone
+    bool   demand
+    float  top
+    float  bottom
+    int    left
+    int    confirmBar
+    float  atrv
+    float  baseScore
+    int    strength
+    int    touches = 0
+    bool   inside = false
+    string status = "fresh"
+    box    bx
+
+type Block
+    bool support      // true: acts as support (bullish OB / bullish breaker)
+    float top
+    float bottom
+    int   left
+    bool  breaker = false
+    bool  atZone = false
+    box   bx
+
+type Gap
+    bool  bull
+    float top
+    float bottom
+    box   bx
+
+atr = ta.atr(14)
+tfSec = timeframe.in_seconds()
+
+// Recent OHLC by bar index, so base and leg searches need no history operator.
+var array<float> oA = array.new<float>()
+var array<float> hA = array.new<float>()
+var array<float> lA = array.new<float>()
+var array<float> cA = array.new<float>()
+oA.push(open)
+hA.push(high)
+lA.push(low)
+cA.push(close)
+if oA.size() > 600
+    oA.shift()
+    hA.shift()
+    lA.shift()
+    cA.shift()
+getv(array<float> a, int j) =>
+    a.get(a.size() - 1 - (bar_index - j))
+inRange(int j) =>
+    bar_index - j < oA.size() and j <= bar_index
+
+var array<Pending> pend   = array.new<Pending>()
+var array<Zone>    zones  = array.new<Zone>()
+var array<Block>   blocks = array.new<Block>()
+var array<Gap>     gaps   = array.new<Gap>()
+// Every FVG ever found (first-candle bar, direction), for zone confluence.
+var array<int>  fvgFirst = array.new<int>()
+var array<bool> fvgIsBull = array.new<bool>()
+// Confirmed swings, for structure-break confluence.
+var array<float> shP = array.new<float>()
+var array<int>   shB = array.new<int>()
+var array<float> slP = array.new<float>()
+var array<int>   slB = array.new<int>()
+
+bool buyNow  = false
+bool sellNow = false
+bool newDemand = false
+bool newSupply = false
+
+// ═════════════════════════════ Sessions ═════════════════════════════
+
+recent = timenow - time <= sesDays * 86400000
+sessionsOn = showSessions and tfSec <= 3600
+
+sessionBox(bool on, string sess, string name, color col) =>
+    var box b = na
+    var float hi = na
+    var float lo = na
+    inS = on and sessionsOn and recent and not na(time(timeframe.period, sess, sesTz))
+    if inS and not inS[1]
+        hi := high
+        lo := low
+        b := box.new(bar_index, hi, bar_index, lo, border_color = color.new(col, 30), bgcolor = color.new(col, 90), text = name, text_color = col, text_size = size.small, text_valign = text.align_top, text_halign = text.align_center)
+    else if inS and not na(b)
+        hi := math.max(hi, high)
+        lo := math.min(lo, low)
+        b.set_top(hi)
+        b.set_bottom(lo)
+        b.set_right(bar_index)
+    inS
+
+inAsia   = sessionBox(showAsia, asiaSess, "Asia", asiaCol)
+inLondon = sessionBox(showLondon, londonSess, "London", londonCol)
+inNyAm   = sessionBox(showNyAm, nyAmSess, "New York AM", nyAmCol)
+inNyPm   = sessionBox(showNyPm, nyPmSess, "New York PM", nyPmCol)
+
+// ═════════════════════════════ Lifecycle of existing objects (before anything new) ═════════════════════════════
+
+// Trade tracking: the stop is checked first, so a candle touching both counts as a loss.
+var int    tDir = 0
+var int    tBar = na
+var float  tEntry = na
+var float  tSL = na
+var float  tTP = na
+var string tOutcome = ""
+if tDir != 0 and tOutcome == "Open" and bar_index > tBar
+    if (tDir == 1 and low <= tSL) or (tDir == -1 and high >= tSL)
+        tOutcome := "SL hit"
+    else if (tDir == 1 and high >= tTP) or (tDir == -1 and low <= tTP)
+        tOutcome := "TP hit"
+
+zoneText(Zone z) =>
+    (z.demand ? "DEMAND" : "SUPPLY") + " · " + str.tostring(z.strength) + (z.status == "mitigated" ? " · mitigated" : z.touches > 0 ? " · T" + str.tostring(z.touches) : "")
+
+styleZone(Zone z) =>
+    col = z.demand ? demandCol : supplyCol
+    fade = z.status == "fresh" ? 80 : z.status == "tested" ? 86 : 93
+    z.bx.set_bgcolor(color.new(col, fade))
+    z.bx.set_border_color(color.new(col, z.status == "mitigated" ? 70 : 30))
+    z.bx.set_text(zoneText(z))
+
+// Zones: touch → tested, halfway → mitigated, close beyond the far edge → removed.
+if zones.size() > 0
+    for i = zones.size() - 1 to 0
+        z = zones.get(i)
+        if z.confirmBar >= bar_index
+            continue
+        sign = z.demand ? 1 : -1
+        near = z.demand ? z.top : z.bottom
+        far  = z.demand ? z.bottom : z.top
+        reach = z.demand ? low : high
+        if z.inside and sign * (reach - near) > exitATR * z.atrv
+            z.inside := false
+        if not z.inside and sign * (reach - near) <= 0
+            wasFresh = z.status == "fresh"
+            z.inside := true
+            z.touches += 1
+            if wasFresh
+                z.status := "tested"
+                // First return to a fresh zone: entry at the near edge (or the open if it gapped in),
+                // SL beyond the far edge, TP 1:1.
+                if z.strength >= minStrength
+                    entry = sign * (open - near) < 0 ? open : near
+                    sl = far - sign * stopBuf * z.atrv
+                    if sign * (entry - sl) > 0
+                        tDir := sign
+                        tBar := bar_index
+                        tEntry := math.round_to_mintick(entry)
+                        tSL := math.round_to_mintick(sl)
+                        tTP := math.round_to_mintick(tEntry + (tEntry - tSL))
+                        tOutcome := (z.demand ? low <= tSL : high >= tSL) ? "SL hit" : "Open"
+                        if z.demand
+                            buyNow := true
+                        else
+                            sellNow := true
+        if (z.status == "fresh" or z.status == "tested") and sign * (reach - (near - sign * mitDepth * (z.top - z.bottom))) <= 0
+            z.status := "mitigated"
+        z.strength := math.round(z.baseScore + (z.status == "fresh" ? 10 : z.status == "tested" and z.touches <= 1 ? 5 : 0))
+        if sign * (close - far) < 0 or (z.status == "mitigated" and not showMitigated)
+            z.bx.delete()
+            zones.remove(i)
+        else
+            styleZone(z)
+            z.bx.set_right(bar_index + extendR)
+
+// Order blocks become breaker blocks when a candle closes through them; breakers end when price closes back through.
+if blocks.size() > 0
+    for i = blocks.size() - 1 to 0
+        b = blocks.get(i)
+        failed = b.support ? close < b.bottom : close > b.top
+        if failed and not b.breaker and showBb
+            b.breaker := true
+            b.support := not b.support
+            b.bx.set_bgcolor(color.new(bbCol, 85))
+            b.bx.set_border_color(bbCol)
+            b.bx.set_border_style(line.style_dashed)
+            b.bx.set_text(b.support ? "BB ▲" : "BB ▼")
+            b.bx.set_text_color(bbCol)
+        else if failed
+            b.bx.delete()
+            blocks.remove(i)
+            continue
+        b.bx.set_right(bar_index + extendR)
+
+// FVGs disappear once price has traded all the way through them.
+if gaps.size() > 0
+    for i = gaps.size() - 1 to 0
+        g = gaps.get(i)
+        if g.bull ? low <= g.bottom : high >= g.top
+            g.bx.delete()
+            gaps.remove(i)
+        else
+            g.bx.set_right(bar_index + extendR)
+
+// ═════════════════════════════ New fair value gaps ═════════════════════════════
+
+if bar_index >= 2 and not na(atr)
+    for dir in array.from(1, -1)
+        bull = dir == 1
+        top = bull ? low : low[2]
+        bot = bull ? high[2] : high
+        if top > bot and (top - bot) >= fvgMin * atr
+            fvgFirst.push(bar_index - 2)
+            fvgIsBull.push(bull)
+            if fvgFirst.size() > 300
+                fvgFirst.shift()
+                fvgIsBull.shift()
+            if showFvg
+                col = bull ? fvgBull : fvgBear
+                gaps.push(Gap.new(bull, top, bot, box.new(bar_index - 1, top, bar_index + extendR, bot, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right)))
+                if gaps.size() > maxFvg
+                    gaps.shift().bx.delete()
+
+// ═════════════════════════════ Market structure ═════════════════════════════
+
+var float shPrice = na
+var int   shBar = na
+var bool  shBroken = true
+var float slPrice = na
+var int   slBar = na
+var bool  slBroken = true
+var int   trend = 0
+
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+
+if not na(ph)
+    shPrice := ph
+    shBar := bar_index - swingLen
+    shBroken := false
+    shP.push(ph)
+    shB.push(shBar)
+if not na(pl)
+    slPrice := pl
+    slBar := bar_index - swingLen
+    slBroken := false
+    slP.push(pl)
+    slB.push(slBar)
+if shP.size() > 100
+    shP.shift()
+    shB.shift()
+if slP.size() > 100
+    slP.shift()
+    slB.shift()
+
+bool bullBreak = not shBroken and not na(shPrice) and close > shPrice
+bool bearBreak = not slBroken and not na(slPrice) and close < slPrice
+if bullBreak and bearBreak
+    bullBreak := close >= open
+    bearBreak := not bullBreak
+
+overlapFrac(float top, float bot, float zTop, float zBot) =>
+    h = top - bot
+    h > 0 ? math.max(0.0, math.min(top, zTop) - math.max(bot, zBot)) / h : 0.0
+
+// Order block: the last opposite-colour candle at the start of the leg that broke structure.
+newBlock(bool support, int fromBar) =>
+    int legBar = bar_index
+    span = math.min(bar_index - fromBar, oA.size() - 1)
+    for k = 0 to span
+        j = bar_index - k
+        if support ? getv(lA, j) < getv(lA, legBar) : getv(hA, j) > getv(hA, legBar)
+            legBar := j
+    int obBar = legBar
+    for k = 0 to 5
+        j = legBar - k
+        if not inRange(j) or j < 0
+            break
+        if support ? getv(cA, j) < getv(oA, j) : getv(cA, j) > getv(oA, j)
+            obBar := j
+            break
+    o = getv(oA, obBar)
+    c = getv(cA, obBar)
+    top = obWidth == "Body" ? math.max(o, c) : getv(hA, obBar)
+    bot = obWidth == "Body" ? math.min(o, c) : getv(lA, obBar)
+    bool dup = false
+    for b in blocks
+        if b.left == obBar
+            dup := true
+    if not dup and showOb
+        bool atZone = false
+        for z in zones
+            if z.demand == support and overlapFrac(top, bot, z.top, z.bottom) >= 0.5
+                atZone := true
+        col = support ? obBullCol : obBearCol
+        txt = atZone ? (support ? "OB @ DEMAND" : "OB @ SUPPLY") : "OB"
+        bx = box.new(obBar, top, bar_index + extendR, bot, border_color = col, border_width = atZone ? 2 : 1, bgcolor = color.new(col, atZone ? 75 : 88), text = txt, text_color = col, text_size = size.tiny, text_halign = text.align_left)
+        blocks.push(Block.new(support, top, bot, obBar, false, atZone, bx))
+        // Keep only the newest blocks on each side.
+        int count = 0
+        for i = blocks.size() - 1 to 0
+            b = blocks.get(i)
+            if b.support == support
+                count += 1
+                if count > maxBlocks
+                    b.bx.delete()
+                    blocks.remove(i)
+    obBar
+
+drawBreak(int fromBar, float price, bool bull, bool choch) =>
+    col = bull ? demandCol : supplyCol
+    line.new(fromBar, price, bar_index, price, color = col, style = choch ? line.style_dashed : line.style_solid)
+    label.new(int((fromBar + bar_index) / 2), price, choch ? "CHoCH" : "BOS", style = bull ? label.style_label_down : label.style_label_up, color = color(na), textcolor = col, size = size.tiny)
+
+if bullBreak
+    shBroken := true
+    if showStruct
+        drawBreak(shBar, shPrice, true, trend <= 0)
+    newBlock(true, shBar)
+    trend := 1
+if bearBreak
+    slBroken := true
+    if showStruct
+        drawBreak(slBar, slPrice, false, trend >= 0)
+    newBlock(false, slBar)
+    trend := -1
+
+// ═════════════════════════════ Supply & demand zones ═════════════════════════════
+
+// The base is the swing candle plus quiet neighbours (range ≤ baseRange × ATR), up to maxBase.
+quietBar(int j, float a) =>
+    getv(hA, j) - getv(lA, j) <= baseRange * a
+
+newPending(bool demand, int p, float a) =>
+    if not na(a) and a > 0 and inRange(p - maxBase)
+        int b0 = p
+        int b1 = p
+        while b1 - b0 + 1 < maxBase and b0 - 1 >= 0 and inRange(b0 - 1) and quietBar(b0 - 1, a)
+            b0 -= 1
+        while b1 - b0 + 1 < maxBase and b1 + 1 <= bar_index and quietBar(b1 + 1, a)
+            b1 += 1
+        sign = demand ? 1 : -1
+        float near = demand ? -1e12 : 1e12
+        float far = demand ? 1e12 : -1e12
+        for j = b0 to b1
+            o = getv(oA, j)
+            c = getv(cA, j)
+            bodyNear = demand ? math.max(o, c) : math.min(o, c)
+            bodyFar = demand ? math.min(o, c) : math.max(o, c)
+            n = zoneWidth == "Wick" ? (demand ? getv(hA, j) : getv(lA, j)) : bodyNear
+            f = zoneWidth == "Body" ? bodyFar : (demand ? getv(lA, j) : getv(hA, j))
+            near := demand ? math.max(near, n) : math.min(near, n)
+            far := demand ? math.min(far, f) : math.max(far, f)
+        h = sign * (near - far)
+        if h < minWidthATR * a
+            near := far + sign * minWidthATR * a
+        if h > maxWidthATR * a
+            near := far + sign * maxWidthATR * a
+        pend.push(Pending.new(demand, near, far, b0, b1, a, p))
+    p
+
+atrAtSwing = atr[swingLen]
+if showZones and not na(pl)
+    newPending(true, bar_index - swingLen, atrAtSwing)
+if showZones and not na(ph)
+    newPending(false, bar_index - swingLen, atrAtSwing)
+
+// A candidate becomes a zone when price closes dispATR beyond its near edge within depBars of the base.
+// It is dropped if price closes beyond its far edge first, or the window ends.
+if pend.size() > 0
+    for i = pend.size() - 1 to 0
+        c = pend.get(i)
+        sign = c.demand ? 1 : -1
+        windowEnd = c.b1 + depBars
+        float best = 0.0
+        int reached = -1
+        bool brokeFar = false
+        if c.b1 + 1 <= bar_index
+            for j = c.b1 + 1 to bar_index
+                cl = getv(cA, j)
+                if sign * (cl - c.far) < 0
+                    brokeFar := true
+                if j <= windowEnd
+                    d = sign * (cl - c.near) / c.atrv
+                    best := math.max(best, d)
+                    if reached < 0 and d >= dispATR
+                        reached := j
+        if brokeFar
+            pend.remove(i)
+            continue
+        if reached < 0
+            if bar_index >= windowEnd
+                pend.remove(i)
+            continue
+        pend.remove(i)
+        top = math.max(c.near, c.far)
+        bot = math.min(c.near, c.far)
+        // Skip it if half of it overlaps a live zone of the same type.
+        bool overlaps = false
+        for z in zones
+            if z.demand == c.demand and z.status != "mitigated" and overlapFrac(top, bot, z.top, z.bottom) >= 0.5
+                overlaps := true
+        if overlaps
+            continue
+        // Confluence: departure closed beyond the last opposite swing; departure left an FVG.
+        bool broke = false
+        array<float> oppP = c.demand ? shP : slP
+        array<int> oppB = c.demand ? shB : slB
+        if oppP.size() > 0
+            for k = oppP.size() - 1 to 0
+                if oppB.get(k) < c.swingBar
+                    lvl = oppP.get(k)
+                    for j = c.b1 + 1 to bar_index
+                        if sign * (getv(cA, j) - lvl) > 0
+                            broke := true
+                    break
+        bool fvg = false
+        if fvgFirst.size() > 0
+            for k = 0 to fvgFirst.size() - 1
+                f0 = fvgFirst.get(k)
+                if fvgIsBull.get(k) == c.demand and f0 >= c.b0 and f0 <= c.b1 + depBars
+                    fvg := true
+        // Score out of 100 (same weights as the Velox engine): departure 30, structure 20, FVG 10,
+        // tight base 15, speed 5, timeframe 10, freshness 10.
+        hATR = (top - bot) / c.atrv
+        tfScore = tfSec <= 300 ? 0.2 : tfSec <= 900 ? 0.4 : tfSec <= 3600 ? 0.7 : 1.0
+        baseScore = 30 * math.min(1, best / (2 * dispATR)) + (broke ? 20 : 0) + (fvg ? 10 : 0) + 15 * math.max(0, math.min(1, (maxWidthATR - hATR) / math.max(1e-9, maxWidthATR - minWidthATR))) + 5 * math.max(0, math.min(1, 1 - (reached - c.b1 - 1) / depBars)) + 10 * tfScore
+        col = c.demand ? demandCol : supplyCol
+        bx = box.new(c.b0, top, bar_index + extendR, bot, border_color = color.new(col, 30), bgcolor = color.new(col, 80), text_color = col, text_size = size.small, text_halign = text.align_right, text_valign = text.align_bottom)
+        nz = Zone.new(c.demand, top, bot, c.b0, bar_index, c.atrv, baseScore, math.round(baseScore + 10))
+        nz.bx := bx
+        styleZone(nz)
+        zones.push(nz)
+        if c.demand
+            newDemand := true
+        else
+            newSupply := true
+        int count = 0
+        for k = zones.size() - 1 to 0
+            zz = zones.get(k)
+            if zz.demand == c.demand
+                count += 1
+                if count > maxZones
+                    zz.bx.delete()
+                    zones.remove(k)
+
+plotshape(showSignals and buyNow, "Buy", shape.labelup, location.belowbar, demandCol, text = "BUY", textcolor = color.white, size = size.small)
+plotshape(showSignals and sellNow, "Sell", shape.labeldown, location.abovebar, supplyCol, text = "SELL", textcolor = color.white, size = size.small)
+
+// ═════════════════════════════ Fibonacci and trade levels (redrawn on the last bar) ═════════════════════════════
+
+levelCol(string n) =>
+    n == "Entry" ? color.gray : n == "SL" ? (tDir == 1 ? supplyCol : demandCol) : (tDir == 1 ? demandCol : supplyCol)
+
+var array<line>  drawnLines  = array.new<line>()
+var array<label> drawnLabels = array.new<label>()
+
+if barstate.islast
+    for l in drawnLines
+        l.delete()
+    for l in drawnLabels
+        l.delete()
+    drawnLines.clear()
+    drawnLabels.clear()
+
+    // Fibonacci across the latest swing high and swing low. 0 is the most recent of the two.
+    if showFib and not na(shPrice) and not na(slPrice)
+        upLeg = shBar > slBar
+        p0 = upLeg ? shPrice : slPrice
+        p1 = upLeg ? slPrice : shPrice
+        x1 = math.min(shBar, slBar)
+        for r in array.from(0.0, fibA, fibB, fibC, 1.0)
+            p = p0 + (p1 - p0) * r
+            drawnLines.push(line.new(x1, p, bar_index + extendR, p, color = color.new(fibCol, r == 0.0 or r == 1.0 ? 40 : 0)))
+            drawnLabels.push(label.new(x1, p, str.tostring(r) + " (" + str.tostring(p, format.mintick) + ")", style = label.style_label_right, color = color(na), textcolor = fibCol, size = size.small))
+
+    if showTrade and tDir != 0
+        x2 = bar_index + extendR
+        for n in array.from("Entry", "SL", "TP")
+            p = n == "Entry" ? tEntry : n == "SL" ? tSL : tTP
+            col = levelCol(n)
+            drawnLines.push(line.new(tBar, p, x2, p, color = col, style = n == "TP" ? line.style_dashed : line.style_solid))
+            drawnLabels.push(label.new(x2, p, n + "  " + str.tostring(p, format.mintick) + (n == "Entry" ? "  · " + (tDir == 1 ? "Buy" : "Sell") + " · " + tOutcome : ""), style = label.style_label_left, color = color.new(col, 15), textcolor = color.white, size = size.small))
+
+// ═════════════════════════════ Alerts ═════════════════════════════
+
+alertcondition(buyNow, "Velox buy", "Velox V1: buy at demand on {{ticker}} ({{interval}}) near {{close}}")
+alertcondition(sellNow, "Velox sell", "Velox V1: sell at supply on {{ticker}} ({{interval}}) near {{close}}")
+alertcondition(newDemand, "New demand zone", "Velox V1: new demand zone on {{ticker}} ({{interval}})")
+alertcondition(newSupply, "New supply zone", "Velox V1: new supply zone on {{ticker}} ({{interval}})")
