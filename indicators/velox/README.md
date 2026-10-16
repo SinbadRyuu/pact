@@ -5,9 +5,9 @@
 | Layer | What it shows |
 |---|---|
 | **Demand / supply zones** | **The place price turned from.** On each break of structure: the wick of the **low that broke the high** (the lowest low between the broken swing high and the candle that closed above it). Supply is the mirror. Drawn as a thin band from that candle to the right, labelled `DEMAND · 82`, then `T1`, `T2` per visit, and faded when mitigated. Removed when a candle **closes** through it. Shows the 3 nearest per side. |
-| **Order blocks** | **The candle the move started from:** the last down-close candle (bullish) or up-close candle (bearish) at or before that low/high. Its full wick range by default. Only kept if the move from it was strong: at least 1.5 ATR, 2 strong candles, and the break within 30 candles. Labelled `OB`, with a thicker border when it sits on a zone. |
+| **Order blocks** | **The candle the move started from:** the last down-close candle (bullish) or up-close candle (bearish) at or before that low/high. From a shorter internal swing (5) so they stay small and local on every timeframe; body only, capped at 0.75 ATR. Only kept if the move from it was strong: at least 1.5 ATR, 2 strong candles, and the break within 30 candles. Labelled `OB`, with a thicker border when it sits on a zone. |
 | **Breaker blocks** | A failed order block (a candle closed through it) flips role and is shown as `BB`, purple and dashed, until price closes back through it. |
-| **4H zones** | 4H demand and supply on lower charts (`4H DEMAND · 88`), from **closed** 4H candles only. Every timeframe also shows its own zones. |
+| **Higher-timeframe zones** | Follow the chart (Auto): 1m → 15m, 5m → 1H, 15m/1H → 4H, 4H → Daily. From **closed** higher-timeframe candles only. Every timeframe also shows its own zones, order blocks and breakers. |
 | **Fair value gaps** | Three-candle gaps of at least 0.3 ATR, removed once filled. |
 | **BOS / CHoCH** | Drawn when the breaking candle closes. |
 | **Sessions** (UK time, outlined boxes) | Asia 01:00–04:50, London 07:00–09:55, New York AM 13:30–15:55, New York PM 18:30–20:55. |

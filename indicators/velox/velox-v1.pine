@@ -1,5 +1,5 @@
 // Velox V1 — supply & demand zones, order blocks, breaker blocks, fair value gaps, market structure,
-// trading sessions and 4H zones. PACT Finance.
+// trading sessions and higher-timeframe zones that follow the chart's timeframe. PACT Finance.
 //
 // DEMAND ZONE = the place price turned from: the wick of the low that broke the high (the lowest low
 //   between a swing high and the candle that closed above it). Supply is the mirror.
@@ -32,6 +32,7 @@ nyPmCol      = input.color(#3b82f6, "", inline = "nypm", group = grpSes)
 
 grpStr = "Market structure"
 swingLen   = input.int(10, "Swing length", minval = 1, maxval = 50, group = grpStr, tooltip = "Candles each side of a swing. A swing is confirmed this many candles after it happens.")
+obSwingLen = input.int(5, "Order block swing length", minval = 1, maxval = 50, group = grpStr, tooltip = "Order blocks come from breaks of this shorter, more local structure, so they stay small and close to price on every timeframe. Zones use the swing length above.")
 showStruct = input.bool(true, "Show BOS / CHoCH", group = grpStr)
 
 grpZone = "Supply & demand zones"
@@ -76,11 +77,11 @@ fvgBody = input.float(1.0, "Middle candle body at least (× ATR)", minval = 0, s
 maxFvg  = input.int(3, "Max FVGs shown", minval = 1, maxval = 50, group = grpFvg)
 fvgExt  = input.int(10, "Extend FVGs right (candles)", minval = 0, maxval = 300, group = grpFvg)
 
-grpHtf = "4H zones"
-showHtf    = input.bool(true, "Show 4H demand and supply zones", group = grpHtf, tooltip = "Shown on charts below 4H, from closed 4H candles only. The chart's own timeframe always has its own zones.")
-htf        = input.timeframe("240", "Higher timeframe", group = grpHtf)
-htfPerSide = input.int(2, "4H zones per side", minval = 1, maxval = 3, group = grpHtf)
-htfMinTf   = input.timeframe("5", "Only on charts of at least", group = grpHtf, tooltip = "4H zones are far taller than 1m candles, so they are hidden on very low timeframes.")
+grpHtf = "Higher-timeframe zones"
+showHtf    = input.bool(true, "Show higher-timeframe demand and supply", group = grpHtf, tooltip = "From closed higher-timeframe candles only. The chart's own timeframe always has its own zones, order blocks and breakers.")
+htfMode    = input.string("Auto", "Higher timeframe", options = ["Auto", "Manual"], group = grpHtf, tooltip = "Auto follows the chart: 1m → 15m, 5m → 1H, 15m and 1H → 4H, 4H → Daily. Nothing above 4H.")
+htfManual  = input.timeframe("240", "Manual timeframe", group = grpHtf)
+htfPerSide = input.int(2, "Zones per side", minval = 1, maxval = 3, group = grpHtf)
 
 grpC = "Colours"
 demandCol = input.color(#26c6da, "Demand", group = grpC)
@@ -143,6 +144,13 @@ type State
     int   slBar = na
     bool  slBroken = true
     int   trend = 0
+    // Shorter "internal" structure, used for order blocks.
+    float ishPrice = na
+    int   ishBar = na
+    bool  ishBroken = true
+    float islPrice = na
+    int   islBar = na
+    bool  islBroken = true
     // What happened on the last processed candle (for drawing and alerts).
     int   evBar = na
     bool  evBull = false
@@ -284,7 +292,7 @@ findOb(State s, bool bull, int o, int fromBar, float a) =>
     [ob, math.round_to_mintick(top), math.round_to_mintick(bot), disp, imp]
 
 // A candle closed beyond the last unbroken swing: record the break, then build the zone from the
-// lowest low (highest high) since that swing, and the order block from the last opposite candle.
+// lowest low (highest high) since that swing. (Order blocks come from the internal structure below.)
 onBreak(State s, bool bull, int tfSec) =>
     sign = bull ? 1 : -1
     swingBar = bull ? s.shBar : s.slBar
@@ -307,7 +315,6 @@ onBreak(State s, bool bull, int tfSec) =>
         zBot = math.min(near, far)
         disp = sign * (close - near) / a
         oTime = timeAt(s, o)
-        Lvl zone = na
         bool exists = false
         for z in s.zones
             if z.bull == bull and z.originTime == oTime
@@ -328,13 +335,28 @@ onBreak(State s, bool bull, int tfSec) =>
                 // Zone strength: displacement 25, structure 15, order block 15, FVG 10, speed 10, timeframe 15 (+ freshness 10).
                 base = r1(25 * clamp01(disp / (2 * zoneMinDisp))) + 15 + (obOnZone ? 15 : 0) + (fvg ? 10 : 0) + r1(10 * clamp01(1 - (bar_index - o - 1) / speedBars)) + r1(15 * tfScore(tfSec))
                 reach = bull ? low : high
-                zone := Lvl.new(bull, false, zTop, zBot, oTime, bar_index, a, base, math.round(base + 10))
+                zone = Lvl.new(bull, false, zTop, zBot, oTime, bar_index, a, base, math.round(base + 10))
                 zone.inside := sign * (reach - near) <= 0
                 s.zones.push(zone)
                 s.newZoneBar := bar_index
                 s.newZoneBull := bull
                 if s.zones.size() > 150
                     s.zones.shift()
+    s.trend
+
+// A candle closed beyond the last unbroken INTERNAL swing: the order block is the last opposite-close
+// candle at or before the lowest low (highest high) since that swing, if the move from it was strong.
+onObBreak(State s, bool bull, int tfSec) =>
+    sign = bull ? 1 : -1
+    swingBar = bull ? s.ishBar : s.islBar
+    fromBar = math.max(swingBar + 1, bar_index - 499, bar_index - s.o.size() + 1)
+    int o = fromBar
+    for j = fromBar to bar_index
+        if bull ? val(s.l, j) < val(s.l, o) : val(s.h, j) > val(s.h, o)
+            o := j
+    a = val(s.a, o)
+    if not na(a) and a > 0
+        [obIdx, obTop, obBot, obDisp, obImp] = findOb(s, bull, o, fromBar, a)
         if obIdx >= 0
             obTime = timeAt(s, obIdx)
             bool dup = false
@@ -343,11 +365,10 @@ onBreak(State s, bool bull, int tfSec) =>
                     dup := true
             if not dup
                 gap = obNearATR * a
-                bool onZone = not na(zone) and isNear(obTop, obBot, zone.top, zone.bottom, gap)
-                if not onZone
-                    for z in s.zones
-                        if z.bull == bull and z.status != "invalid" and isNear(obTop, obBot, z.top, z.bottom, gap)
-                            onZone := true
+                bool onZone = false
+                for z in s.zones
+                    if z.bull == bull and z.status != "invalid" and isNear(obTop, obBot, z.top, z.bottom, gap)
+                        onZone := true
                 // Order-block strength: displacement 20, structure 20, timeframe 15, on a zone 10, impulse 10, speed 10 (+ freshness 15).
                 impScore = minImpulse == 0 ? 1.0 : clamp01(obImp / (2 * minImpulse))
                 base = r1(20 * clamp01(obDisp / (2 * obMinDisp))) + 20 + r1(15 * tfScore(tfSec)) + (onZone ? 10 : 0) + r1(10 * impScore) + r1(10 * clamp01(1 - (bar_index - obIdx - 1) / obMaxBars))
@@ -368,6 +389,8 @@ velox(bool conf, int tfSec) =>
     atrNow = ta.atr(ATR_LEN)
     ph = ta.pivothigh(high, swingLen, swingLen)
     pl = ta.pivotlow(low, swingLen, swingLen)
+    iph = ta.pivothigh(high, obSwingLen, obSwingLen)
+    ipl = ta.pivotlow(low, obSwingLen, obSwingLen)
     if conf
         s.o.push(open)
         s.h.push(high)
@@ -445,6 +468,27 @@ velox(bool conf, int tfSec) =>
         if down
             s.slBroken := true
             onBreak(s, false, tfSec)
+
+        // Internal structure for order blocks (after the zones, so a new block can see a new zone).
+        if not na(iph)
+            s.ishPrice := iph
+            s.ishBar := bar_index - obSwingLen
+            s.ishBroken := false
+        if not na(ipl)
+            s.islPrice := ipl
+            s.islBar := bar_index - obSwingLen
+            s.islBroken := false
+        bool iup = not s.ishBroken and not na(s.ishPrice) and close > s.ishPrice
+        bool idown = not s.islBroken and not na(s.islPrice) and close < s.islPrice
+        if iup and idown
+            iup := close >= open
+            idown := not iup
+        if iup
+            s.ishBroken := true
+            onObBreak(s, true, tfSec)
+        if idown
+            s.islBroken := true
+            onObBreak(s, false, tfSec)
     s
 
 tfName(int sec) =>
@@ -473,7 +517,11 @@ htfPack(int tfSec) =>
 chartSec = timeframe.in_seconds()
 S = velox(barstate.isconfirmed, chartSec)
 
-htfPacked = request.security(syminfo.tickerid, htf, htfPack(timeframe.in_seconds(htf))[1], lookahead = barmerge.lookahead_on)
+// Auto: 1m → 15m, up to 5m → 1H, up to 1H → 4H, up to 4H → Daily; nothing above 4H.
+autoHtf = chartSec <= 60 ? "15" : chartSec <= 300 ? "60" : chartSec <= 3600 ? "240" : chartSec <= 14400 ? "D" : ""
+htf = htfMode == "Auto" ? autoHtf : htfManual
+htfUsable = htf != "" and timeframe.in_seconds(htf) > chartSec
+htfPacked = request.security(syminfo.tickerid, htf == "" ? "D" : htf, htfPack(timeframe.in_seconds(htf == "" ? "D" : htf))[1], lookahead = barmerge.lookahead_on)
 
 // ═════════════════════════════ Sessions ═════════════════════════════
 
@@ -573,8 +621,8 @@ if barstate.islast
                 drawn.push(box.new(g.originTime, g.top, time + fvgExt * barMs, g.bottom, xloc = xloc.bar_time, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right))
                 shown += 1
 
-    // 4H zones, from closed 4H candles only.
-    if showHtf and timeframe.in_seconds(htf) > chartSec and chartSec >= timeframe.in_seconds(htfMinTf) and not na(htfPacked) and str.length(htfPacked) > 0
+    // Higher-timeframe zones, from closed higher-timeframe candles only.
+    if showHtf and htfUsable and not na(htfPacked) and str.length(htfPacked) > 0
         name = tfName(timeframe.in_seconds(htf))
         for entry in str.split(htfPacked, ";")
             f = str.split(entry, "|")
