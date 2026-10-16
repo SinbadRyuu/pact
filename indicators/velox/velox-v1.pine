@@ -45,20 +45,23 @@ maxBase     = input.int(3, "Base: max candles", minval = 1, maxval = 10, group =
 zoneMinDisp = input.float(1.5, "Min move away (× ATR)", minval = 0, step = 0.1, group = grpZone, tooltip = "The breaking candle must close at least this far beyond the zone.")
 speedBars   = input.int(20, "Speed: candles for zero score", minval = 1, maxval = 500, group = grpZone)
 overlapLim  = input.float(0.5, "Skip zones overlapping a live one by", minval = 0, maxval = 1, step = 0.05, group = grpZone)
-maxPerSide  = input.int(3, "Zones shown per side", minval = 1, maxval = 20, group = grpZone, tooltip = "Nearest live demand zones below price and supply zones above it.")
+maxPerSide  = input.int(2, "Zones shown per side", minval = 1, maxval = 20, group = grpZone, tooltip = "Nearest live demand zones below price and supply zones above it.")
 showMitigated = input.bool(true, "Show mitigated zones (faded)", group = grpZone)
 
 grpOb = "Order blocks & breaker blocks"
 showOb      = input.bool(true, "Show order blocks", group = grpOb)
-obRange     = input.string("Wick", "Order block edges", options = ["Wick", "Body", "Hybrid"], group = grpOb, tooltip = "Wick: the candle's full low–high. Body: open–close. Hybrid: low–open (bullish) / open–high (bearish).")
+obRange     = input.string("Body", "Order block edges", options = ["Wick", "Body", "Hybrid"], group = grpOb, tooltip = "Wick: the candle's full low–high. Body: open–close. Hybrid: low–open (bullish) / open–high (bearish).")
 obLookback  = input.int(5, "Look back from the low for the candle", minval = 0, maxval = 50, group = grpOb)
 obMinDisp   = input.float(1.5, "Min move away (× ATR)", minval = 0, step = 0.1, group = grpOb)
 minImpulse  = input.int(2, "Min strong candles in the move", minval = 0, maxval = 50, group = grpOb)
 impulseBody = input.float(0.5, "Strong candle: body ÷ range at least", minval = 0, maxval = 1, step = 0.05, group = grpOb)
 obMaxBars   = input.int(30, "Break within (candles)", minval = 1, maxval = 499, group = grpOb)
 obNearATR   = input.float(0.5, "On a zone if within (× ATR)", minval = 0, step = 0.1, group = grpOb)
+obMaxH      = input.float(0.75, "Max block height (× ATR)", minval = 0.05, step = 0.05, group = grpOb, tooltip = "A bigger candle is trimmed to this height, keeping the part nearest the low (bullish) or high (bearish).")
+maxObSide   = input.int(1, "Order blocks shown per side", minval = 1, maxval = 20, group = grpOb)
 showBb      = input.bool(true, "Show breaker blocks", group = grpOb)
-maxObSide   = input.int(3, "Blocks shown per side", minval = 1, maxval = 20, group = grpOb)
+maxBbSide   = input.int(1, "Breaker blocks shown per side", minval = 1, maxval = 20, group = grpOb)
+bbLife      = input.int(50, "Breaker blocks expire after (candles)", minval = 1, maxval = 2000, group = grpOb)
 
 grpLife = "Zone & block lifecycle"
 touchExit = input.float(0.5, "Leave distance for a new visit (× ATR)", minval = 0, step = 0.1, group = grpLife)
@@ -68,13 +71,16 @@ invBuf    = input.float(0.0, "Invalidation buffer (× ATR)", minval = 0, step = 
 
 grpFvg = "Fair value gaps"
 showFvg = input.bool(true, "Show FVGs", group = grpFvg)
-fvgMin  = input.float(0.3, "Min size (× ATR)", minval = 0, step = 0.05, group = grpFvg)
-maxFvg  = input.int(6, "Max unfilled FVGs shown", minval = 1, maxval = 50, group = grpFvg)
+fvgMin  = input.float(0.5, "Min gap size (× ATR)", minval = 0, step = 0.05, group = grpFvg)
+fvgBody = input.float(1.0, "Middle candle body at least (× ATR)", minval = 0, step = 0.1, group = grpFvg, tooltip = "Only gaps left by a strong push count: the middle candle must close in the gap's direction with a body at least this big.")
+maxFvg  = input.int(3, "Max FVGs shown", minval = 1, maxval = 50, group = grpFvg)
+fvgExt  = input.int(10, "Extend FVGs right (candles)", minval = 0, maxval = 300, group = grpFvg)
 
 grpHtf = "4H zones"
 showHtf    = input.bool(true, "Show 4H demand and supply zones", group = grpHtf, tooltip = "Shown on charts below 4H, from closed 4H candles only. The chart's own timeframe always has its own zones.")
 htf        = input.timeframe("240", "Higher timeframe", group = grpHtf)
-htfPerSide = input.int(3, "4H zones per side", minval = 1, maxval = 3, group = grpHtf)
+htfPerSide = input.int(2, "4H zones per side", minval = 1, maxval = 3, group = grpHtf)
+htfMinTf   = input.timeframe("5", "Only on charts of at least", group = grpHtf, tooltip = "4H zones are far taller than 1m candles, so they are hidden on very low timeframes.")
 
 grpC = "Colours"
 demandCol = input.color(#26c6da, "Demand", group = grpC)
@@ -84,7 +90,7 @@ obBearCol = input.color(#f59e0b, "Bearish order block", group = grpC)
 bbCol     = input.color(#a855f7, "Breaker block", group = grpC)
 fvgBull   = input.color(#22c55e, "Bullish FVG", group = grpC)
 fvgBear   = input.color(#f43f5e, "Bearish FVG", group = grpC)
-extendR   = input.int(20, "Extend blocks and FVGs right (candles)", minval = 0, maxval = 300, group = grpC)
+extendR   = input.int(10, "Extend blocks right (candles)", minval = 0, maxval = 300, group = grpC)
 
 // Fixed: ATR length and the strength weights (out of 100), as in the engine.
 ATR_LEN = 14
@@ -107,6 +113,7 @@ type Lvl
     bool   inside = false
     bool   onZone = false
     int    breakerSince = na
+    int    breakerBar = na
     int    breakerEnded = na
 
 type Gap
@@ -200,6 +207,7 @@ stepLvl(State s, Lvl z) =>
             z.status := "invalid"
             if z.isOb and showBb
                 z.breakerSince := time
+                z.breakerBar := bar_index
         z.strength := math.round(z.baseScore + freshPts(z))
     z.status
 
@@ -250,6 +258,12 @@ findOb(State s, bool bull, int o, int fromBar, float a) =>
         cc = val(s.c, ob)
         top := obRange == "Wick" ? val(s.h, ob) : obRange == "Body" ? math.max(oo, cc) : bull ? oo : val(s.h, ob)
         bot := obRange == "Wick" ? val(s.l, ob) : obRange == "Body" ? math.min(oo, cc) : bull ? val(s.l, ob) : oo
+        // Trim a big candle, keeping the part nearest the low (bullish) / high (bearish).
+        if top - bot > obMaxH * a
+            if bull
+                top := bot + obMaxH * a
+            else
+                bot := top - obMaxH * a
         nearEdge = bull ? top : bot
         farEdge = bull ? bot : top
         disp := sign * (close - nearEdge) / a
@@ -382,21 +396,24 @@ velox(bool conf, int tfSec) =>
                 b = s.obs.get(i)
                 if b.confirmBar < bar_index
                     stepLvl(s, b)
-                    if b.status == "invalid" and (na(b.breakerSince) or not na(b.breakerEnded))
+                    if b.status == "invalid" and (na(b.breakerSince) or not na(b.breakerEnded) or bar_index - b.breakerBar > bbLife)
                         s.obs.remove(i)
 
-        // FVGs: fill, then detect a new one on the last three candles.
+        // FVGs: removed as soon as price trades back into them; a new one needs a strong middle candle.
         if s.gaps.size() > 0
             for i = s.gaps.size() - 1 to 0
                 g = s.gaps.get(i)
-                if g.confirmBar < bar_index and (g.bull ? low <= g.bottom : high >= g.top)
+                if g.confirmBar < bar_index and (g.bull ? low <= g.top : high >= g.bottom)
                     s.gaps.remove(i)
         if s.o.size() >= 3 and not na(atrNow) and atrNow > 0
             for dir in array.from(1, -1)
                 bull = dir == 1
                 top = bull ? low : val(s.l, bar_index - 2)
                 bot = bull ? val(s.h, bar_index - 2) : high
-                if top > bot and (top - bot) >= fvgMin * atrNow
+                midO = val(s.o, bar_index - 1)
+                midC = val(s.c, bar_index - 1)
+                strongMid = (bull ? midC > midO : midC < midO) and math.abs(midC - midO) >= fvgBody * atrNow
+                if top > bot and (top - bot) >= fvgMin * atrNow and strongMid
                     s.fvgFirst.push(bar_index - 2)
                     s.fvgBull.push(bull)
                     if s.fvgFirst.size() > 300
@@ -543,7 +560,7 @@ if barstate.islast
                 col = bull ? obBullCol : obBearCol
                 drawn.push(box.new(b.originTime, b.top, time + extendR * barMs, b.bottom, xloc = xloc.bar_time, border_color = col, border_width = b.onZone ? 2 : 1, bgcolor = color.new(col, b.status == "fresh" ? 80 : 88), text = "OB", text_color = col, text_size = size.tiny, text_halign = text.align_left))
             if showBb
-                for i in nearest(S.obs, bull, maxObSide, true)
+                for i in nearest(S.obs, bull, maxBbSide, true)
                     b = S.obs.get(i)
                     drawn.push(box.new(b.originTime, b.top, time + extendR * barMs, b.bottom, xloc = xloc.bar_time, border_color = bbCol, border_style = line.style_dashed, bgcolor = color.new(bbCol, 86), text = "BB", text_color = bbCol, text_size = size.tiny, text_halign = text.align_left))
 
@@ -553,11 +570,11 @@ if barstate.islast
             g = S.gaps.get(i)
             if shown < maxFvg
                 col = g.bull ? fvgBull : fvgBear
-                drawn.push(box.new(g.originTime, g.top, time + extendR * barMs, g.bottom, xloc = xloc.bar_time, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right))
+                drawn.push(box.new(g.originTime, g.top, time + fvgExt * barMs, g.bottom, xloc = xloc.bar_time, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right))
                 shown += 1
 
     // 4H zones, from closed 4H candles only.
-    if showHtf and timeframe.in_seconds(htf) > chartSec and not na(htfPacked) and str.length(htfPacked) > 0
+    if showHtf and timeframe.in_seconds(htf) > chartSec and chartSec >= timeframe.in_seconds(htfMinTf) and not na(htfPacked) and str.length(htfPacked) > 0
         name = tfName(timeframe.in_seconds(htf))
         for entry in str.split(htfPacked, ";")
             f = str.split(entry, "|")
