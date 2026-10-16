@@ -1,5 +1,5 @@
 // Velox V1 — supply & demand zones, order blocks, breaker blocks, fair value gaps, market structure,
-// trading sessions and higher-timeframe zones. PACT Finance.
+// trading sessions and higher-timeframe zones, with the VT logo as a faint watermark. PACT Finance.
 //
 // DEMAND ZONE = the place price turned from: the wick of the low that broke the high (the lowest low
 //   between a swing high and the candle that closed above it). Supply is the mirror.
@@ -90,6 +90,12 @@ bbCol     = input.color(#a855f7, "Breaker block", group = grpC)
 fvgBull   = input.color(#22c55e, "Bullish FVG", group = grpC)
 fvgBear   = input.color(#f43f5e, "Bearish FVG", group = grpC)
 extendR   = input.int(20, "Extend blocks and FVGs right (candles)", minval = 0, maxval = 300, group = grpC)
+
+grpLogo = "VT logo watermark"
+showLogo    = input.bool(true, "Show VT logo behind the chart", group = grpLogo)
+logoOpacity = input.int(5, "Opacity %", minval = 1, maxval = 100, group = grpLogo)
+logoBars    = input.int(150, "Width (candles)", minval = 20, maxval = 1000, group = grpLogo)
+logoCol     = input.color(#7c3aed, "Colour", group = grpLogo)
 
 // Fixed: ATR length and the strength weights (out of 100), as in the engine.
 ATR_LEN = 14
@@ -577,6 +583,38 @@ if barstate.islast
                 if f.size() == 6
                     isD = f.get(0) == "D"
                     zoneBox(int(str.tonumber(f.get(3))), str.tonumber(f.get(1)), str.tonumber(f.get(2)), isD ? demandCol : supplyCol, f.get(5), name + " " + (isD ? "DEMAND" : "SUPPLY") + " · " + f.get(4) + (f.get(5) == "mitigated" ? " · mitigated" : ""), 2)
+
+// ═════════════════════════════ VT logo watermark ═════════════════════════════
+// The VT mark as two filled shapes (Pine cannot load images), stretched over the last `logoBars`
+// candles and the middle of their price range, redrawn on the last candle.
+
+var array<polyline> logoShapes = array.new<polyline>()
+logoHi = ta.highest(high, logoBars)
+logoLo = ta.lowest(low, logoBars)
+
+// Outline points on a 1160 × 670 grid, y downwards: [x0, y0, x1, y1, …].
+logoShape(array<float> xy, int x0, float yTop, float yBot, int width, color col) =>
+    array<chart.point> pts = array.new<chart.point>()
+    for i = 0 to int(xy.size() / 2) - 1
+        px = xy.get(2 * i)
+        py = xy.get(2 * i + 1)
+        pts.push(chart.point.from_index(x0 + int(math.round(px / 1160 * width)), yTop - py / 670 * (yTop - yBot)))
+    polyline.new(pts, curved = false, closed = true, xloc = xloc.bar_index, line_color = color.new(col, 100), fill_color = col)
+
+if barstate.islast
+    for p in logoShapes
+        p.delete()
+    logoShapes.clear()
+    if showLogo and not na(logoHi) and not na(logoLo) and logoHi > logoLo
+        rng = logoHi - logoLo
+        yTop = logoHi - 0.15 * rng
+        yBot = logoLo + 0.15 * rng
+        x0 = bar_index - logoBars
+        col = color.new(logoCol, 100 - logoOpacity)
+        // V
+        logoShapes.push(logoShape(array.from(0.0, 0.0, 260.0, 0.0, 410.0, 245.0, 565.0, 0.0, 700.0, 0.0, 375.0, 530.0), x0, yTop, yBot, logoBars, col))
+        // T: the bar, then the stem slanting down to the left
+        logoShapes.push(logoShape(array.from(760.0, 0.0, 1160.0, 0.0, 1110.0, 90.0, 870.0, 90.0, 510.0, 670.0, 440.0, 670.0, 780.0, 90.0, 730.0, 90.0), x0, yTop, yBot, logoBars, col))
 
 // ═════════════════════════════ Alerts (on closed candles) ═════════════════════════════
 
