@@ -1,6 +1,6 @@
 {
   "name": "@pact/velox",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Velox V1: deterministic supply and demand engine. Pure TypeScript, no DOM, no network.",
   "type": "module",

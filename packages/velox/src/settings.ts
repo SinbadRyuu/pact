@@ -1,53 +1,74 @@
 import type { Timeframe } from './types.ts'
 
-export const ENGINE_VERSION = `0.2.0`
+export const ENGINE_VERSION = `0.3.0`
 
-export type ZoneWidth = `body-wick` | `wick` | `body`
+/**
+ * How a supply/demand zone's near (proximal) edge is drawn. The far (distal) edge is always the wick
+ * of the origin candle.
+ *  wick  the origin candle's wick: for demand, from its low up to the bottom of its body (default)
+ *  atr   a fixed band of `zoneAtrBand` × ATR from the wick
+ *  base  the origin candle plus quiet neighbours, up to their highest body (a broader zone)
+ */
+export type ZoneWidth = `wick` | `atr` | `base`
+
+/** Which part of the order-block candle is used: its full range, its body, or wick-to-open. */
+export type OrderBlockRange = `wick` | `body` | `hybrid`
 
 export type VeloxSettings = {
   /** Candles each side of a swing. A swing is confirmed `swingLength` candles after it happens. */
   swingLength: number
   atrPeriod: number
 
-  /** Most candles a base can have, including the swing candle. */
-  maxBaseCandles: number
-  /** A neighbour joins the base only if its high–low range is at most this many ATRs. */
-  baseRangeATR: number
   /**
-   * How the zone's edges are drawn from the base candles:
-   *  body-wick  far edge at the extreme wick, near edge at the extreme body (default; the usual S&D convention)
-   *  wick       full high–low range of the base
-   *  body       bodies only
+   * true: zones only come from moves that broke structure (a candle closed beyond the last swing).
+   * false: zones also come from any swing that price left by `zoneMinDisplacementATR` within
+   * `departureBars`, without a break. Those score nothing for structure.
    */
+  requireBOS: boolean
   zoneWidth: ZoneWidth
-  /** Zones are widened to at least this many ATRs tall … */
-  minWidthATR: number
-  /** … and trimmed (on the near edge) to at most this many. */
-  maxWidthATR: number
-
-  /** Price must close at least this many ATRs beyond the near edge … */
-  displacementATR: number
-  /** … within this many candles after the base. */
+  zoneAtrBand: number
+  /** Zones are kept between these heights (in ATR) by moving the near edge only. */
+  minHeightATR: number
+  maxHeightATR: number
+  /** `base` width only: neighbours join the base if their range is at most this many ATRs … */
+  baseRangeATR: number
+  /** … up to this many candles in all. */
+  maxBaseCandles: number
+  /** The break (or departure) must close at least this many ATRs beyond the zone's near edge. */
+  zoneMinDisplacementATR: number
+  /** Window for zones without a break (`requireBOS: false`). */
   departureBars: number
-  /** Only keep zones whose departure also closed beyond the last opposite swing. */
-  requireStructureBreak: boolean
-  /** Skip a new zone if this fraction of its height overlaps a fresh or tested zone of the same type. 0 keeps every zone. */
+  /** Candles from origin to break after which the speed factor scores nothing. */
+  speedBars: number
+  /** Skip a new zone if this fraction of its height overlaps a fresh or tested zone of the same type. 0 keeps all. */
   overlapLimit: number
 
-  /** Another touch only counts after price has left the zone by this many ATRs. */
-  touchExitATR: number
-  /** Fraction of the zone's height price must reach for the zone to count as mitigated. */
-  mitigationDepth: number
-  /** A close this many ATRs beyond the far edge invalidates the zone. */
-  invalidationATR: number
-
-  signals: {
+  orderBlocks: {
     enabled: boolean
-    /** Only zones at least this strong produce a signal. */
-    minStrength: number
-    /** Stop-loss distance beyond the far edge, in ATRs. */
-    stopBufferATR: number
+    /** Candles to look back from the origin for the last opposite-close candle. */
+    lookback: number
+    range: OrderBlockRange
+    /** The break must close at least this many ATRs beyond the order block's near edge. */
+    minDisplacementATR: number
+    /** Strong candles in the move's direction needed between the order block and the break … */
+    minImpulseCandles: number
+    /** … where strong means body ÷ range at least this. */
+    impulseBodyRatio: number
+    /** The break must come within this many candles of the order block. */
+    maxBars: number
+    /** An order block counts as on a zone if it overlaps it or is within this many ATRs. */
+    nearATR: number
+    /** Failed order blocks become breaker blocks. */
+    breakers: boolean
   }
+
+  /** Another touch only counts after price has left by this many ATRs beyond the near edge. */
+  touchExitATR: number
+  /** Fraction of the height price must reach to count as mitigated. */
+  mitigationDepth: number
+  /** close: a candle must close beyond the far edge to invalidate. wick: touching beyond it is enough. */
+  invalidation: `close` | `wick`
+  invalidationBufferATR: number
 
   fvg: {
     enabled: boolean
@@ -55,47 +76,65 @@ export type VeloxSettings = {
     minSizeATR: number
   }
 
-  weights: Record<`displacement` | `structure` | `fvg` | `base` | `speed` | `timeframe` | `freshness`, number>
+  weights: Record<`displacement` | `structure` | `orderBlock` | `fvg` | `speed` | `freshness` | `timeframe`, number>
+  orderBlockWeights: Record<`displacement` | `structure` | `freshness` | `timeframe` | `zone` | `impulse` | `speed`, number>
   timeframeScore: Record<Timeframe, number>
 }
 
 export const DEFAULT_SETTINGS: VeloxSettings = {
-  swingLength: 3,
+  swingLength: 10,
   atrPeriod: 14,
-  maxBaseCandles: 3,
+  requireBOS: true,
+  zoneWidth: `wick`,
+  zoneAtrBand: 0.25,
+  minHeightATR: 0.15,
+  maxHeightATR: 1,
   baseRangeATR: 1,
-  zoneWidth: `body-wick`,
-  minWidthATR: 0.1,
-  maxWidthATR: 1.5,
-  displacementATR: 1.5,
+  maxBaseCandles: 3,
+  zoneMinDisplacementATR: 1.5,
   departureBars: 6,
-  requireStructureBreak: false,
+  speedBars: 20,
   overlapLimit: 0.5,
+  orderBlocks: {
+    enabled: true,
+    lookback: 5,
+    range: `wick`,
+    minDisplacementATR: 1.5,
+    minImpulseCandles: 2,
+    impulseBodyRatio: 0.5,
+    maxBars: 30,
+    nearATR: 0.5,
+    breakers: true,
+  },
   touchExitATR: 0.5,
   mitigationDepth: 0.5,
-  invalidationATR: 0,
-  signals: { enabled: true, minStrength: 60, stopBufferATR: 0.1 },
-  // Starting weights, out of 100. Not calibrated yet: they are there to be tuned against historical results.
+  invalidation: `close`,
+  invalidationBufferATR: 0,
   fvg: { enabled: true, minSizeATR: 0.3 },
-  weights: { displacement: 30, structure: 20, fvg: 10, base: 15, speed: 5, timeframe: 10, freshness: 10 },
+  // Starting weights, out of 100 each. Not calibrated yet: they are there to be tuned against results.
+  weights: { displacement: 25, structure: 15, orderBlock: 15, fvg: 10, speed: 10, freshness: 10, timeframe: 15 },
+  orderBlockWeights: { displacement: 20, structure: 20, freshness: 15, timeframe: 15, zone: 10, impulse: 10, speed: 10 },
   timeframeScore: { '5m': 0.2, '15m': 0.4, '1h': 0.7, '4h': 1, '1d': 1 },
 }
 
-export type VeloxSettingsInput = Partial<Omit<VeloxSettings, `signals` | `fvg` | `weights` | `timeframeScore`>> & {
-  signals?: Partial<VeloxSettings[`signals`]>
+export type VeloxSettingsInput = Partial<Omit<VeloxSettings, `orderBlocks` | `fvg` | `weights` | `orderBlockWeights` | `timeframeScore`>> & {
+  orderBlocks?: Partial<VeloxSettings[`orderBlocks`]>
   fvg?: Partial<VeloxSettings[`fvg`]>
   weights?: Partial<VeloxSettings[`weights`]>
+  orderBlockWeights?: Partial<VeloxSettings[`orderBlockWeights`]>
   timeframeScore?: Partial<VeloxSettings[`timeframeScore`]>
 }
 
 export function resolveSettings(input: VeloxSettingsInput = {}): VeloxSettings {
+  const d = DEFAULT_SETTINGS
   const s: VeloxSettings = {
-    ...DEFAULT_SETTINGS,
+    ...d,
     ...input,
-    signals: { ...DEFAULT_SETTINGS.signals, ...input.signals },
-    fvg: { ...DEFAULT_SETTINGS.fvg, ...input.fvg },
-    weights: { ...DEFAULT_SETTINGS.weights, ...input.weights },
-    timeframeScore: { ...DEFAULT_SETTINGS.timeframeScore, ...input.timeframeScore },
+    orderBlocks: { ...d.orderBlocks, ...input.orderBlocks },
+    fvg: { ...d.fvg, ...input.fvg },
+    weights: { ...d.weights, ...input.weights },
+    orderBlockWeights: { ...d.orderBlockWeights, ...input.orderBlockWeights },
+    timeframeScore: { ...d.timeframeScore, ...input.timeframeScore },
   }
   const int = (v: number, name: string, min: number, max: number) => {
     if (!Number.isInteger(v) || v < min || v > max) throw new RangeError(`${name} must be a whole number from ${min} to ${max}`)
@@ -107,11 +146,16 @@ export function resolveSettings(input: VeloxSettingsInput = {}): VeloxSettings {
   int(s.atrPeriod, `atrPeriod`, 1, 500)
   int(s.maxBaseCandles, `maxBaseCandles`, 1, 10)
   int(s.departureBars, `departureBars`, 1, 100)
-  for (const k of [`baseRangeATR`, `minWidthATR`, `maxWidthATR`, `displacementATR`, `touchExitATR`, `invalidationATR`] as const) pos(s[k], k)
-  pos(s.signals.stopBufferATR, `signals.stopBufferATR`)
+  int(s.speedBars, `speedBars`, 1, 500)
+  int(s.orderBlocks.lookback, `orderBlocks.lookback`, 0, 50)
+  int(s.orderBlocks.minImpulseCandles, `orderBlocks.minImpulseCandles`, 0, 50)
+  int(s.orderBlocks.maxBars, `orderBlocks.maxBars`, 1, 500)
+  for (const k of [`zoneAtrBand`, `minHeightATR`, `maxHeightATR`, `baseRangeATR`, `zoneMinDisplacementATR`, `touchExitATR`, `invalidationBufferATR`] as const) pos(s[k], k)
+  for (const k of [`minDisplacementATR`, `impulseBodyRatio`, `nearATR`] as const) pos(s.orderBlocks[k], `orderBlocks.${k}`)
   pos(s.fvg.minSizeATR, `fvg.minSizeATR`)
-  if (s.minWidthATR > s.maxWidthATR) throw new RangeError(`minWidthATR must not exceed maxWidthATR`)
+  if (s.minHeightATR > s.maxHeightATR) throw new RangeError(`minHeightATR must not exceed maxHeightATR`)
   if (!(s.mitigationDepth > 0 && s.mitigationDepth <= 1)) throw new RangeError(`mitigationDepth must be in (0, 1]`)
   if (!(s.overlapLimit >= 0 && s.overlapLimit <= 1)) throw new RangeError(`overlapLimit must be in [0, 1]`)
+  if (s.orderBlocks.impulseBodyRatio > 1) throw new RangeError(`orderBlocks.impulseBodyRatio must be at most 1`)
   return s
 }

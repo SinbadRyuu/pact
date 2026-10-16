@@ -1,8 +1,19 @@
 import { TIMEFRAME_SECONDS } from './candles.ts'
 import { stableHash } from './hash.ts'
-import { scoreZone, type ScoreInput } from './score.ts'
+import { scoreOrderBlock, scoreZone, type OrderBlockScoreInput, type ZoneScoreInput } from './score.ts'
 import { ENGINE_VERSION, resolveSettings, type VeloxSettings, type VeloxSettingsInput } from './settings.ts'
-import type { Candle, DevelopingZone, FairValueGap, Instrument, Signal, SupplyDemandZone, Swing, VeloxState, ZoneStatus, ZoneType } from './types.ts'
+import type {
+  Candle,
+  FairValueGap,
+  Instrument,
+  LevelEvent,
+  OrderBlock,
+  StructureEvent,
+  SupplyDemandZone,
+  Swing,
+  VeloxState,
+  ZoneStatus,
+} from './types.ts'
 
 export type Engine = {
   readonly settings: VeloxSettings
@@ -12,25 +23,22 @@ export type Engine = {
   state(): VeloxState
 }
 
-type Candidate = {
-  type: ZoneType
-  swing: Swing
-  b0: number
-  b1: number
-  near: number
-  far: number
-  atr: number
-}
-
-type LiveZone = {
-  zone: SupplyDemandZone
+/** Shared lifecycle bookkeeping for zones and order blocks. `bull` = demand / bullish order block. */
+type Tracked = {
+  bull: boolean
+  item: { high: number; low: number; status: ZoneStatus; statusChangedAt: number; touches: number; events: LevelEvent[] }
   confirmedIndex: number
   atr: number
-  scoreInput: ScoreInput
   inside: boolean
+  rescore: () => void
+  breaker?: OrderBlock[`breaker`]
 }
 
-type LiveSignal = Signal & { index: number }
+type Pending = { swing: Swing; near: number; far: number; atr: number }
+
+// Highest lookback for any search, so the TradingView version (which can only see 500 candles back)
+// gives the same answers.
+const MAX_LOOKBACK = 499
 
 /**
  * Velox runs bar by bar. On each closed candle it can only see that candle and the ones before it,
@@ -43,19 +51,27 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
   const step = TIMEFRAME_SECONDS[instrument.timeframe]
   const settingsHash = stableHash(settings)
   const L = settings.swingLength
+  const tf = instrument.timeframe
+  const prefix = `${instrument.symbol}:${instrument.provider}:${tf}`
 
   const candles: Candle[] = []
   const atr: (number | null)[] = []
   let trSum = 0
   const swings: Swing[] = []
-  let pending: Candidate[] = []
-  const zones: LiveZone[] = []
-  const signals: LiveSignal[] = []
+  const structure: StructureEvent[] = []
+  const zones: (Tracked & { zone: SupplyDemandZone })[] = []
+  const blocks: (Tracked & { block: OrderBlock })[] = []
   const fvgs: { gap: FairValueGap; first: number; confirmedIndex: number }[] = []
+  let pending: Pending[] = []
+  let lastHigh: { swing: Swing; broken: boolean } | null = null
+  let lastLow: { swing: Swing; broken: boolean } | null = null
+  let trend = 0
 
   const round = (v: number) => Number(v.toFixed(instrument.pricePrecision))
   const closeOf = (i: number) => candles[i]!.time + step
   const c = (i: number) => candles[i]!
+  const isUp = (i: number) => c(i).close > c(i).open
+  const isDown = (i: number) => c(i).close < c(i).open
 
   function updateAtr(i: number) {
     const k = c(i)
@@ -72,6 +88,127 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
     }
   }
 
+  // ───────────── Lifecycle (zones and order blocks alike) ─────────────
+
+  function setStatus(t: Tracked, status: ZoneStatus, at: number) {
+    if (t.item.status === status) return
+    t.item.status = status
+    t.item.statusChangedAt = at
+  }
+
+  // In this order on each candle after confirmation:
+  //   left        price moved touchExitATR beyond the near edge after a visit
+  //   touch       price reached the near edge (once per visit)
+  //   mitigated   price reached mitigationDepth of the height
+  //   invalidated a candle closed (or wicked, in wick mode) beyond the far edge
+  // Breakers (failed order blocks) end when a later candle closes back beyond the near edge.
+  function stepTracked(t: Tracked, i: number) {
+    const k = c(i)
+    const at = closeOf(i)
+    const it = t.item
+    const sign = t.bull ? 1 : -1
+    const near = t.bull ? it.high : it.low
+    const far = t.bull ? it.low : it.high
+
+    if (it.status === `invalid`) {
+      if (t.breaker && t.breaker.endedAt === null && t.breaker.since < at && sign * (k.close - near) > 0) {
+        t.breaker.endedAt = at
+        it.events.push({ time: at, kind: `breaker-ended` })
+      }
+      return
+    }
+
+    const reach = t.bull ? k.low : k.high
+    if (t.inside && sign * (reach - near) > settings.touchExitATR * t.atr) {
+      t.inside = false
+      it.events.push({ time: at, kind: `left` })
+    }
+    if (!t.inside && sign * (reach - near) <= 0) {
+      t.inside = true
+      it.touches++
+      it.events.push({ time: at, kind: `touch` })
+      if (it.status === `fresh`) setStatus(t, `tested`, at)
+    }
+    const depth = near - sign * settings.mitigationDepth * (it.high - it.low)
+    if ((it.status === `fresh` || it.status === `tested`) && sign * (reach - depth) <= 0) {
+      setStatus(t, `mitigated`, at)
+      it.events.push({ time: at, kind: `mitigated` })
+    }
+    const breach = settings.invalidation === `close` ? k.close : reach
+    if (sign * (breach - (far - sign * settings.invalidationBufferATR * t.atr)) < 0) {
+      setStatus(t, `invalid`, at)
+      it.events.push({ time: at, kind: `invalidated` })
+      if (t.breaker === null && settings.orderBlocks.breakers) {
+        t.breaker = { since: at, endedAt: null }
+        it.events.push({ time: at, kind: `breaker` })
+      }
+    }
+    t.rescore()
+  }
+
+  function runLifecycle(i: number) {
+    for (const z of zones) if (z.confirmedIndex < i) stepTracked(z, i)
+    for (const b of blocks) {
+      if (b.confirmedIndex < i) stepTracked(b, i)
+      b.block.breaker = b.breaker ?? null
+    }
+  }
+
+  // ───────────── Fair value gaps ─────────────
+
+  // Bullish on candles i-2, i-1, i: low[i] > high[i-2]. Bearish: high[i] < low[i-2].
+  function detectFvg(i: number) {
+    if (!settings.fvg.enabled || i < 2) return
+    const a = atr[i]
+    if (a == null || !(a > 0)) return
+    const first = c(i - 2)
+    const third = c(i)
+    for (const direction of [`bullish`, `bearish`] as const) {
+      const low = direction === `bullish` ? first.high : third.high
+      const high = direction === `bullish` ? third.low : first.low
+      if (!(high > low) || (high - low) / a < settings.fvg.minSizeATR) continue
+      fvgs.push({
+        gap: {
+          id: `${prefix}:fvg:${direction}:${c(i - 1).time}`,
+          direction,
+          symbol: instrument.symbol,
+          provider: instrument.provider,
+          timeframe: tf,
+          high: round(high),
+          low: round(low),
+          originTime: c(i - 1).time,
+          confirmedAt: closeOf(i),
+          sizeATR: Number(((high - low) / a).toFixed(2)),
+          status: `open`,
+          statusChangedAt: closeOf(i),
+          filled: 0,
+          engineVersion: ENGINE_VERSION,
+        },
+        first: i - 2,
+        confirmedIndex: i,
+      })
+    }
+  }
+
+  // Fill is measured by wicks: how far price has traded back into the gap, 0 to 1.
+  function runFvgLifecycle(i: number) {
+    const k = c(i)
+    for (const f of fvgs) {
+      const g = f.gap
+      if (f.confirmedIndex >= i || g.status === `filled`) continue
+      const depth = g.direction === `bullish` ? (g.high - k.low) / (g.high - g.low) : (k.high - g.low) / (g.high - g.low)
+      if (depth <= g.filled) continue
+      g.filled = Number(Math.min(1, depth).toFixed(4))
+      const status = g.filled >= 1 ? `filled` : `partial`
+      if (status !== g.status) {
+        g.status = status
+        g.statusChangedAt = closeOf(i)
+      }
+    }
+  }
+
+  // ───────────── Swings ─────────────
+
   // A swing at p is confirmed at i = p + L: it must beat the L candles on each side
   // (strictly on the right, at least equal on the left, as TradingView's pivots do).
   function detectSwing(i: number) {
@@ -87,172 +224,80 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
         if (beaten) ok = false
       }
       if (!ok) continue
-      const swing: Swing = { id: `${instrument.timeframe}:${kind}:${c(p).time}`, kind, price: v, time: c(p).time, index: p, confirmedAt: closeOf(i), confirmedIndex: i }
+      const swing: Swing = { id: `${tf}:${kind}:${c(p).time}`, kind, price: v, time: c(p).time, index: p, confirmedAt: closeOf(i), confirmedIndex: i }
       swings.push(swing)
-      const cand = baseFor(swing, i)
-      if (cand) pending.push(cand)
+      if (kind === `high`) lastHigh = { swing, broken: false }
+      else lastLow = { swing, broken: false }
+      if (!settings.requireBOS) {
+        const edges = zoneEdges(kind === `low`, p, p, i)
+        if (edges) pending.push({ swing, ...edges })
+      }
     }
   }
 
-  // The base is the swing candle plus quiet neighbours (range ≤ baseRangeATR), up to maxBaseCandles.
-  function baseFor(swing: Swing, i: number): Candidate | null {
-    const a = atr[swing.index]
-    if (a == null || !(a > 0)) return null
-    const quiet = (j: number) => c(j).high - c(j).low <= settings.baseRangeATR * a
-    let b0 = swing.index
-    let b1 = swing.index
-    while (b1 - b0 + 1 < settings.maxBaseCandles && b0 - 1 >= 0 && quiet(b0 - 1)) b0--
-    while (b1 - b0 + 1 < settings.maxBaseCandles && b1 + 1 <= i && quiet(b1 + 1)) b1++
+  // ───────────── Zones ─────────────
 
-    const type: ZoneType = swing.kind === `low` ? `demand` : `supply`
-    const sign = type === `demand` ? 1 : -1
-    let near = -sign * Infinity
-    let far = sign * Infinity
-    for (let j = b0; j <= b1; j++) {
-      const k = c(j)
-      const bodyNear = sign > 0 ? Math.max(k.open, k.close) : Math.min(k.open, k.close)
-      const bodyFar = sign > 0 ? Math.min(k.open, k.close) : Math.max(k.open, k.close)
-      const wickNear = sign > 0 ? k.high : k.low
-      const wickFar = sign > 0 ? k.low : k.high
-      const n = settings.zoneWidth === `wick` ? wickNear : bodyNear
-      const f = settings.zoneWidth === `body` ? bodyFar : wickFar
-      near = sign > 0 ? Math.max(near, n) : Math.min(near, n)
-      far = sign > 0 ? Math.min(far, f) : Math.max(far, f)
+  /**
+   * Edges of a zone whose origin candle is o. The far edge is o's wick; the near edge depends on
+   * zoneWidth. `from`..`to` bounds the neighbours a `base` zone may include.
+   */
+  function zoneEdges(bull: boolean, o: number, from: number, to: number): { near: number; far: number; atr: number } | null {
+    const a = atr[o]
+    if (a == null || !(a > 0)) return null
+    const sign = bull ? 1 : -1
+    const k = c(o)
+    const far = bull ? k.low : k.high
+    let near: number
+    if (settings.zoneWidth === `wick`) near = bull ? Math.min(k.open, k.close) : Math.max(k.open, k.close)
+    else if (settings.zoneWidth === `atr`) near = far + sign * settings.zoneAtrBand * a
+    else {
+      const quiet = (j: number) => c(j).high - c(j).low <= settings.baseRangeATR * a
+      let b0 = o
+      let b1 = o
+      while (b1 - b0 + 1 < settings.maxBaseCandles && b0 - 1 >= from && quiet(b0 - 1)) b0--
+      while (b1 - b0 + 1 < settings.maxBaseCandles && b1 + 1 <= to && quiet(b1 + 1)) b1++
+      near = bull ? -Infinity : Infinity
+      for (let j = b0; j <= b1; j++) {
+        const body = bull ? Math.max(c(j).open, c(j).close) : Math.min(c(j).open, c(j).close)
+        near = bull ? Math.max(near, body) : Math.min(near, body)
+      }
     }
     const height = sign * (near - far)
-    if (height < settings.minWidthATR * a) near = far + sign * settings.minWidthATR * a
-    if (height > settings.maxWidthATR * a) near = far + sign * settings.maxWidthATR * a
-    return { type, swing, b0, b1, near: round(near), far: round(far), atr: a }
+    if (height < settings.minHeightATR * a) near = far + sign * settings.minHeightATR * a
+    if (height > settings.maxHeightATR * a) near = far + sign * settings.maxHeightATR * a
+    return { near: round(near), far: round(far), atr: a }
   }
 
-  function overlapsActive(cand: Candidate): boolean {
+  const overlapFraction = (lo: number, hi: number, z: { high: number; low: number }) => (hi > lo ? Math.max(0, Math.min(hi, z.high) - Math.max(lo, z.low)) / (hi - lo) : 0)
+  const near = (a: { high: number; low: number }, b: { high: number; low: number }, gap: number) => Math.max(a.low, b.low) - Math.min(a.high, b.high) <= gap
+
+  function overlapsLive(bull: boolean, lo: number, hi: number): boolean {
     if (settings.overlapLimit === 0) return false
-    const lo = Math.min(cand.near, cand.far)
-    const hi = Math.max(cand.near, cand.far)
-    for (const z of zones) {
-      if (z.zone.type !== cand.type || (z.zone.status !== `fresh` && z.zone.status !== `tested`)) continue
-      const overlap = Math.min(hi, z.zone.high) - Math.max(lo, z.zone.low)
-      if (hi > lo && overlap / (hi - lo) >= settings.overlapLimit) return true
-    }
-    return false
+    return zones.some((z) => z.bull === bull && (z.item.status === `fresh` || z.item.status === `tested`) && overlapFraction(lo, hi, z.item) >= settings.overlapLimit)
   }
 
-  // Bullish FVG on candles i-2, i-1, i: low[i] > high[i-2]. Bearish: high[i] < low[i-2].
-  // Gaps under fvg.minSizeATR are ignored so the chart is not covered in slivers.
-  function detectFvg(i: number) {
-    if (!settings.fvg.enabled || i < 2) return
-    const a = atr[i]
-    if (a == null || !(a > 0)) return
-    const first = c(i - 2)
-    const third = c(i)
-    for (const direction of [`bullish`, `bearish`] as const) {
-      const low = direction === `bullish` ? first.high : third.high
-      const high = direction === `bullish` ? third.low : first.low
-      if (!(high > low) || (high - low) / a < settings.fvg.minSizeATR) continue
-      const gap: FairValueGap = {
-        id: `${instrument.symbol}:${instrument.provider}:${instrument.timeframe}:fvg:${direction}:${c(i - 1).time}`,
-        direction,
-        symbol: instrument.symbol,
-        provider: instrument.provider,
-        timeframe: instrument.timeframe,
-        high: round(high),
-        low: round(low),
-        originTime: c(i - 1).time,
-        confirmedAt: closeOf(i),
-        sizeATR: Number(((high - low) / a).toFixed(2)),
-        status: `open`,
-        statusChangedAt: closeOf(i),
-        filled: 0,
-        engineVersion: ENGINE_VERSION,
-      }
-      fvgs.push({ gap, first: i - 2, confirmedIndex: i })
-    }
-  }
-
-  // Fill is measured by wicks: how far price has traded back into the gap, 0 to 1.
-  function runFvgLifecycle(i: number) {
-    const k = c(i)
-    for (const f of fvgs) {
-      const g = f.gap
-      if (f.confirmedIndex >= i || g.status === `filled`) continue
-      const height = g.high - g.low
-      const depth = g.direction === `bullish` ? (g.high - k.low) / height : (k.high - g.low) / height
-      if (depth <= g.filled) continue
-      g.filled = Number(Math.min(1, depth).toFixed(4))
-      const status = g.filled >= 1 ? `filled` : `partial`
-      if (status !== g.status) {
-        g.status = status
-        g.statusChangedAt = closeOf(i)
-      }
-    }
-  }
-
-  // An FVG in the zone's direction that formed inside the departure (from the base onwards) and was
-  // already confirmed. The first one is recorded.
-  function departureFvg(cand: Candidate, i: number): string | null {
-    const direction = cand.type === `demand` ? `bullish` : `bearish`
-    const f = fvgs.find((x) => x.gap.direction === direction && x.first >= cand.b0 && x.first <= cand.b1 + settings.departureBars && x.confirmedIndex <= i)
+  function departureFvg(bull: boolean, o: number, i: number): string | null {
+    const direction = bull ? `bullish` : `bearish`
+    const f = fvgs.find((x) => x.gap.direction === direction && x.first >= o && x.confirmedIndex <= i)
     return f ? f.gap.id : null
   }
 
-  // A candidate becomes a zone when, within departureBars after its base, price closed displacementATR
-  // beyond the near edge (and, if required, beyond the last opposite swing). It dies if price closes
-  // beyond its far edge first, or the window ends.
-  function checkCandidates(i: number) {
-    const keep: Candidate[] = []
-    for (const cand of pending) {
-      const sign = cand.type === `demand` ? 1 : -1
-      const windowEnd = cand.b1 + settings.departureBars
-      let best = 0
-      let reachedAt = -1
-      let brokeFar = false
-      for (let j = cand.b1 + 1; j <= i; j++) {
-        if (sign * (c(j).close - cand.far) < 0) brokeFar = true
-        if (j > windowEnd) continue
-        const d = (sign * (c(j).close - cand.near)) / cand.atr
-        if (d > best) best = d
-        if (reachedAt < 0 && d >= settings.displacementATR) reachedAt = j
-      }
-      if (brokeFar) continue
-
-      const opposite = [...swings].reverse().find((s) => s.kind === (sign > 0 ? `high` : `low`) && s.index < cand.swing.index && s.confirmedIndex <= i)
-      let broke: { swingId: string; price: number } | null = null
-      if (opposite) {
-        for (let j = cand.b1 + 1; j <= i && !broke; j++) if (sign * (c(j).close - opposite.price) > 0) broke = { swingId: opposite.id, price: opposite.price }
-      }
-
-      const ready = reachedAt >= 0 && (!settings.requireStructureBreak || broke !== null)
-      if (ready) {
-        if (!overlapsActive(cand)) confirm(cand, i, best, reachedAt - cand.b1, broke)
-        continue
-      }
-      if (i < windowEnd) keep.push(cand)
-    }
-    pending = keep
-  }
-
-  function confirm(cand: Candidate, i: number, displacementATR: number, departureBars: number, broke: { swingId: string; price: number } | null) {
-    const fvgId = departureFvg(cand, i)
-    const scoreInput: ScoreInput = {
-      displacementATR,
-      departureBars,
-      heightATR: Math.abs(cand.near - cand.far) / cand.atr,
-      brokeStructure: broke !== null,
-      fvg: fvgId !== null,
-      timeframe: instrument.timeframe,
-    }
-    const scored = scoreZone(scoreInput, `fresh`, 0, settings)
-    const id = `${instrument.symbol}:${instrument.provider}:${instrument.timeframe}:${cand.type}:${c(cand.b0).time}`
+  function addZone(bull: boolean, o: number, i: number, edges: { near: number; far: number; atr: number }, displacementATR: number, departureBars: number, structureEventId: string | null, swingId: string | null, ob: { id: string; high: number; low: number } | null) {
+    const id = `${prefix}:${bull ? `demand` : `supply`}:${c(o).time}`
+    if (zones.some((z) => z.zone.id === id)) return null
+    const fvgId = departureFvg(bull, o, i)
+    const box = { high: Math.max(edges.near, edges.far), low: Math.min(edges.near, edges.far) }
+    const onZone = ob !== null && near(ob, box, settings.orderBlocks.nearATR * edges.atr)
+    const input: ZoneScoreInput = { displacementATR, departureBars, structure: structureEventId !== null, orderBlock: onZone, fvg: fvgId !== null, timeframe: tf }
+    const scored = scoreZone(input, `fresh`, 0, settings)
     const zone: SupplyDemandZone = {
       id,
-      type: cand.type,
+      type: bull ? `demand` : `supply`,
       symbol: instrument.symbol,
       provider: instrument.provider,
-      timeframe: instrument.timeframe,
-      high: Math.max(cand.near, cand.far),
-      low: Math.min(cand.near, cand.far),
-      originTime: c(cand.b0).time,
-      baseEndTime: c(cand.b1).time,
+      timeframe: tf,
+      ...box,
+      originTime: c(o).time,
       confirmedAt: closeOf(i),
       strengthAtConfirmation: scored.strength,
       strength: scored.strength,
@@ -262,123 +307,194 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
       touches: 0,
       events: [],
       source: {
-        swingId: cand.swing.id,
+        structureEventId,
+        swingId,
         displacementATR: Number(displacementATR.toFixed(2)),
         departureBars,
-        baseCandles: cand.b1 - cand.b0 + 1,
-        brokeStructure: broke,
+        orderBlockId: onZone ? ob.id : null,
         fvgId,
-        atr: Number(cand.atr.toFixed(instrument.pricePrecision + 2)),
+        atr: Number(edges.atr.toFixed(instrument.pricePrecision + 2)),
       },
+      relatedOrderBlockIds: onZone ? [ob.id] : [],
       engineVersion: ENGINE_VERSION,
     }
-    const k = c(i)
-    const inside = cand.type === `demand` ? k.low <= zone.high : k.high >= zone.low
-    zones.push({ zone, confirmedIndex: i, atr: cand.atr, scoreInput, inside })
-  }
-
-  function setStatus(z: LiveZone, status: ZoneStatus, at: number) {
-    if (z.zone.status === status) return
-    z.zone.status = status
-    z.zone.statusChangedAt = at
-  }
-
-  // Lifecycle, in this order on each candle after confirmation:
-  //   left     price moved touchExitATR beyond the near edge after a touch
-  //   touch    price came back to the near edge (counted once per visit)
-  //   mitigated  price reached mitigationDepth of the way into the zone
-  //   invalid  a candle closed invalidationATR beyond the far edge
-  function runLifecycle(i: number) {
-    const k = c(i)
-    const at = closeOf(i)
-    for (const z of zones) {
-      if (z.confirmedIndex >= i || z.zone.status === `invalid`) continue
-      const zone = z.zone
-      const demand = zone.type === `demand`
-      const near = demand ? zone.high : zone.low
-      const far = demand ? zone.low : zone.high
-      const sign = demand ? 1 : -1
-      const height = zone.high - zone.low
-      const reach = demand ? k.low : k.high // how far into the zone this candle went
-
-      if (z.inside && sign * (reach - near) > settings.touchExitATR * z.atr) {
-        z.inside = false
-        zone.events.push({ time: at, kind: `left` })
-      }
-      if (!z.inside && sign * (reach - near) <= 0) {
-        const wasFresh = zone.status === `fresh`
-        z.inside = true
-        zone.touches++
-        zone.events.push({ time: at, kind: `touch` })
-        if (wasFresh) {
-          setStatus(z, `tested`, at)
-          maybeSignal(z, i)
-        }
-      }
-      if ((zone.status === `fresh` || zone.status === `tested`) && sign * (reach - (near - sign * settings.mitigationDepth * height)) <= 0) {
-        setStatus(z, `mitigated`, at)
-        zone.events.push({ time: at, kind: `mitigated` })
-      }
-      if (sign * (k.close - (far - sign * settings.invalidationATR * z.atr)) < 0) {
-        setStatus(z, `invalid`, at)
-        zone.events.push({ time: at, kind: `invalidated` })
-      }
-      const scored = scoreZone(z.scoreInput, zone.status, zone.touches, settings)
-      zone.strength = scored.strength
-      zone.score = scored.factors
+    const reach = bull ? c(i).low : c(i).high
+    const tracked = {
+      bull,
+      item: zone,
+      zone,
+      confirmedIndex: i,
+      atr: edges.atr,
+      inside: (bull ? 1 : -1) * (reach - (bull ? zone.high : zone.low)) <= 0,
+      rescore: () => {
+        const s = scoreZone(input, zone.status, zone.touches, settings)
+        zone.strength = s.strength
+        zone.score = s.factors
+      },
     }
+    zones.push(tracked)
+    return tracked
   }
 
-  // First return to a fresh zone strong enough to trade. Entry at the near edge (or the open, if the
-  // candle opened inside the zone), stop beyond the far edge, target 1:1 with the stop.
-  function maybeSignal(z: LiveZone, i: number) {
-    const s = settings.signals
-    if (!s.enabled || z.zone.strengthAtConfirmation < s.minStrength) return
+  // Zones without a break (requireBOS: false): a confirmed swing that price leaves by
+  // zoneMinDisplacementATR within departureBars. Dropped if price closes beyond its far edge first.
+  function checkPending(i: number) {
+    const keep: Pending[] = []
+    for (const p of pending) {
+      const bull = p.swing.kind === `low`
+      const sign = bull ? 1 : -1
+      const o = p.swing.index
+      let reached = -1
+      let best = 0
+      let broke = false
+      for (let j = o + 1; j <= i; j++) {
+        if (sign * (c(j).close - p.far) < 0) broke = true
+        if (j > o + settings.departureBars) continue
+        const d = (sign * (c(j).close - p.near)) / p.atr
+        best = Math.max(best, d)
+        if (reached < 0 && d >= settings.zoneMinDisplacementATR) reached = j
+      }
+      if (broke) continue
+      if (reached >= 0) {
+        const lo = Math.min(p.near, p.far)
+        const hi = Math.max(p.near, p.far)
+        if (!overlapsLive(bull, lo, hi)) addZone(bull, o, i, p, best, reached - o, null, p.swing.id, null)
+        continue
+      }
+      if (i < o + settings.departureBars) keep.push(p)
+    }
+    pending = keep
+  }
+
+  // ───────────── Structure breaks → zones and order blocks ─────────────
+
+  function detectBreak(i: number) {
     const k = c(i)
-    const demand = z.zone.type === `demand`
-    const sign = demand ? 1 : -1
-    const near = demand ? z.zone.high : z.zone.low
-    const far = demand ? z.zone.low : z.zone.high
-    const entry = round(sign * (k.open - near) < 0 ? k.open : near)
-    const stopLoss = round(far - sign * s.stopBufferATR * z.atr)
-    if (sign * (entry - stopLoss) <= 0) return // opened beyond the stop: no trade
-    const { risk, takeProfit } = oneToOne(entry, stopLoss, instrument.pricePrecision)
-    const sig: LiveSignal = {
-      id: `${z.zone.id}:signal`,
-      zoneId: z.zone.id,
-      side: demand ? `buy` : `sell`,
-      time: k.time,
-      entry,
-      stopLoss,
-      takeProfit,
-      risk,
-      outcome: `open`,
-      closedAt: null,
+    let up = lastHigh !== null && !lastHigh.broken && k.close > lastHigh.swing.price
+    let down = lastLow !== null && !lastLow.broken && k.close < lastLow.swing.price
+    if (up && down) {
+      // An outside candle broke both sides: its direction decides.
+      up = k.close >= k.open
+      down = !up
+    }
+    if (up) onBreak(true, i)
+    if (down) onBreak(false, i)
+  }
+
+  function onBreak(bull: boolean, i: number) {
+    const level = (bull ? lastHigh : lastLow)!
+    level.broken = true
+    const sign = bull ? 1 : -1
+    const event: StructureEvent = {
+      id: `${tf}:${bull ? `up` : `down`}:${c(i).time}`,
+      kind: (bull ? trend <= 0 : trend >= 0) ? `CHoCH` : `BOS`,
+      direction: bull ? `up` : `down`,
+      level: level.swing.price,
+      swingId: level.swing.id,
+      time: c(i).time,
+      confirmedAt: closeOf(i),
+    }
+    structure.push(event)
+    trend = sign
+
+    // Origin: the lowest low (highest high for supply) after the broken swing, up to this candle.
+    // "The low that broke the high." Ties keep the earliest candle.
+    const from = Math.max(level.swing.index + 1, i - MAX_LOOKBACK)
+    let o = from
+    for (let j = from; j <= i; j++) if (bull ? c(j).low < c(o).low : c(j).high > c(o).high) o = j
+    const edges = zoneEdges(bull, o, from, i)
+    if (!edges) return
+
+    const ob = settings.orderBlocks.enabled ? findOrderBlock(bull, o, from, i, edges.atr) : null
+    const displacementATR = (sign * (c(i).close - edges.near)) / edges.atr
+    let zone: ReturnType<typeof addZone> = null
+    if (displacementATR >= settings.zoneMinDisplacementATR) {
+      const lo = Math.min(edges.near, edges.far)
+      const hi = Math.max(edges.near, edges.far)
+      if (!overlapsLive(bull, lo, hi)) zone = addZone(bull, o, i, edges, displacementATR, i - o, event.id, null, ob ? { id: ob.id, high: ob.high, low: ob.low } : null)
+    }
+    if (ob) addOrderBlock(bull, ob, i, event.id, zone?.zone ?? null, edges.atr)
+  }
+
+  type ObCandidate = { id: string; index: number; high: number; low: number; displacementATR: number; impulseCandles: number }
+
+  // The last opposite-close candle at or before the origin, accepted only if the move from it was
+  // strong enough: displacement, impulse candles, a timely break, and no close through it on the way.
+  function findOrderBlock(bull: boolean, o: number, from: number, i: number, a: number): ObCandidate | null {
+    const s = settings.orderBlocks
+    const sign = bull ? 1 : -1
+    let ob = -1
+    for (let j = o; j >= Math.max(from, o - s.lookback); j--) {
+      if (bull ? isDown(j) : isUp(j)) {
+        ob = j
+        break
+      }
+    }
+    if (ob < 0 || i - ob > s.maxBars) return null
+    const k = c(ob)
+    const high = s.range === `wick` ? k.high : s.range === `body` ? Math.max(k.open, k.close) : bull ? k.open : k.high
+    const low = s.range === `wick` ? k.low : s.range === `body` ? Math.min(k.open, k.close) : bull ? k.low : k.open
+    const nearEdge = bull ? high : low
+    const farEdge = bull ? low : high
+    const displacementATR = (sign * (c(i).close - nearEdge)) / a
+    if (displacementATR < s.minDisplacementATR) return null
+    let impulse = 0
+    for (let j = ob + 1; j <= i; j++) {
+      const x = c(j)
+      if (sign * (x.close - farEdge) < 0) return null
+      const range = x.high - x.low
+      if ((bull ? isUp(j) : isDown(j)) && range > 0 && Math.abs(x.close - x.open) / range >= s.impulseBodyRatio) impulse++
+    }
+    if (impulse < s.minImpulseCandles) return null
+    return { id: `${prefix}:ob:${bull ? `bullish` : `bearish`}:${k.time}`, index: ob, high: round(high), low: round(low), displacementATR, impulseCandles: impulse }
+  }
+
+  function addOrderBlock(bull: boolean, ob: ObCandidate, i: number, bosId: string, sameBreakZone: SupplyDemandZone | null, a: number) {
+    if (blocks.some((b) => b.block.id === ob.id)) return
+    const gap = settings.orderBlocks.nearATR * a
+    const parent = sameBreakZone && near(ob, sameBreakZone, gap) ? sameBreakZone : (zones.find((z) => z.bull === bull && z.zone.status !== `invalid` && near(ob, z.zone, gap))?.zone ?? null)
+    const input: OrderBlockScoreInput = { displacementATR: ob.displacementATR, impulseCandles: ob.impulseCandles, bars: i - ob.index, onZone: parent !== null, timeframe: tf }
+    const scored = scoreOrderBlock(input, `fresh`, 0, settings)
+    const block: OrderBlock = {
+      id: ob.id,
+      type: bull ? `bullish` : `bearish`,
+      symbol: instrument.symbol,
+      provider: instrument.provider,
+      timeframe: tf,
+      high: ob.high,
+      low: ob.low,
+      originTime: c(ob.index).time,
+      confirmedAt: closeOf(i),
+      strengthAtConfirmation: scored.strength,
+      strength: scored.strength,
+      score: scored.factors,
+      status: `fresh`,
+      statusChangedAt: closeOf(i),
+      touches: 0,
+      events: [],
+      displacementATR: Number(ob.displacementATR.toFixed(2)),
+      impulseCandles: ob.impulseCandles,
+      bosId,
+      parentZoneId: parent?.id ?? null,
+      breaker: null,
       engineVersion: ENGINE_VERSION,
-      index: i,
     }
-    // On the entry candle we cannot know whether the target came before the fill, so only the stop is checked.
-    if (sign * ((demand ? k.low : k.high) - stopLoss) <= 0) {
-      sig.outcome = `sl`
-      sig.closedAt = closeOf(i)
-    }
-    signals.push(sig)
-  }
-
-  // A candle reaching both the stop and the target counts as a loss: the order inside a candle is unknown.
-  function trackSignals(i: number) {
-    const k = c(i)
-    for (const s of signals) {
-      if (s.outcome !== `open` || s.index >= i) continue
-      const buy = s.side === `buy`
-      if (buy ? k.low <= s.stopLoss : k.high >= s.stopLoss) {
-        s.outcome = `sl`
-        s.closedAt = closeOf(i)
-      } else if (buy ? k.high >= s.takeProfit : k.low <= s.takeProfit) {
-        s.outcome = `tp`
-        s.closedAt = closeOf(i)
-      }
-    }
+    if (parent && !parent.relatedOrderBlockIds.includes(block.id)) parent.relatedOrderBlockIds.push(block.id)
+    const reach = bull ? c(i).low : c(i).high
+    blocks.push({
+      bull,
+      item: block,
+      block,
+      confirmedIndex: i,
+      atr: a,
+      inside: (bull ? 1 : -1) * (reach - (bull ? block.high : block.low)) <= 0,
+      breaker: null,
+      rescore: () => {
+        const s = scoreOrderBlock(input, block.status, block.touches, settings)
+        block.strength = s.strength
+        block.score = s.factors
+      },
+    })
   }
 
   return {
@@ -386,27 +502,18 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
     push(candle) {
       const last = candles.at(-1)
       if (last && candle.time <= last.time) throw new RangeError(`candles must be pushed in time order without repeats (got ${candle.time} after ${last.time})`)
-      if (candle.time % step !== 0) throw new RangeError(`candle time ${candle.time} is not aligned to ${instrument.timeframe}`)
+      if (candle.time % step !== 0) throw new RangeError(`candle time ${candle.time} is not aligned to ${tf}`)
       candles.push({ ...candle })
       const i = candles.length - 1
       updateAtr(i)
-      trackSignals(i)
       runLifecycle(i)
       runFvgLifecycle(i)
       detectFvg(i)
       detectSwing(i)
-      checkCandidates(i)
+      checkPending(i)
+      detectBreak(i)
     },
     state() {
-      const developing: DevelopingZone[] = pending.map((p) => ({
-        type: p.type,
-        swingId: p.swing.id,
-        high: Math.max(p.near, p.far),
-        low: Math.min(p.near, p.far),
-        originTime: c(p.b0).time,
-        // Close of the last candle in the departure window, assuming no gaps.
-        expiresAfter: c(p.b1).time + step * (settings.departureBars + 1),
-      }))
       return structuredClone({
         engine: `velox` as const,
         engineVersion: ENGINE_VERSION,
@@ -415,23 +522,13 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
         asOf: candles.length ? closeOf(candles.length - 1) : null,
         candles: candles.length,
         swings,
+        structure,
         zones: zones.map((z) => z.zone),
+        orderBlocks: blocks.map((b) => b.block),
         fvgs: fvgs.map((f) => f.gap),
-        developing,
-        signals: signals.map(({ index: _index, ...s }) => s),
       })
     },
   }
-}
-
-/**
- * The take-profit for a 1:1 risk-to-reward trade: as far from the entry as the stop, on the other side.
- * Entry 4000.00 with stop 3990.00 gives 4010.00; entry 4000.00 with stop 4010.00 gives 3990.00.
- */
-export function oneToOne(entry: number, stopLoss: number, precision: number): { risk: number; takeProfit: number } {
-  const round = (v: number) => Number(v.toFixed(precision))
-  const risk = round(Math.abs(entry - stopLoss))
-  return { risk, takeProfit: round(entry + (entry > stopLoss ? risk : -risk)) }
 }
 
 /** Runs the engine over a whole series of closed candles and returns the final state. */

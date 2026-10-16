@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { run, type VeloxSettingsInput } from '../src/index.ts'
-import { bars, DEMAND_ROWS, instrument, mirror, STEP, T0 } from './helpers.ts'
+import { bars, BOS_ROWS, DEMAND_ROWS, instrument, mirror, STEP, T0 } from './helpers.ts'
 
-const settings: VeloxSettingsInput = { atrPeriod: 5, swingLength: 2, signals: { minStrength: 0 } }
+const settings: VeloxSettingsInput = { atrPeriod: 5, swingLength: 2 }
 const candles = bars(DEMAND_ROWS)
 const at = (i: number) => T0 + i * STEP
 const closeAt = (i: number) => at(i) + STEP
@@ -47,13 +47,16 @@ test('gaps smaller than fvg.minSizeATR are ignored', () => {
 })
 
 test('a zone whose departure left an FVG records it and scores for it', () => {
-  const withGap = run(candles.slice(0, 13), instrument(), settings).zones[0]!
-  const g = gapAfter(13, 94.5, 95.8)!
-  assert.equal(withGap.source.fvgId, g.id)
-  assert.equal(withGap.score.find((f) => f.key === `fvg`)!.points, 10)
+  // BOS_ROWS: the rally from the 94 low leaves a bullish gap between candle 11's high (96.4) and candle 13's low (97.6).
+  const up = bars(BOS_ROWS).slice(0, 15)
+  const state = run(up, instrument(), settings)
+  const zone = state.zones.find((z) => z.type === `demand` && z.low === 94)!
+  const gap = state.fvgs.find((g) => g.direction === `bullish` && g.low === 96.4 && g.high === 97.6)!
+  assert.equal(zone.source.fvgId, gap.id)
+  assert.equal(zone.score.find((f) => f.key === `fvg`)!.points, 10)
 
-  const without = run(candles.slice(0, 13), instrument(), { ...settings, fvg: { enabled: false } }).zones[0]!
+  const without = run(up, instrument(), { ...settings, fvg: { enabled: false } }).zones.find((z) => z.type === `demand` && z.low === 94)!
   assert.equal(without.source.fvgId, null)
   assert.equal(without.score.find((f) => f.key === `fvg`)!.points, 0)
-  assert.equal(withGap.strengthAtConfirmation - without.strengthAtConfirmation, 10)
+  assert.equal(zone.strengthAtConfirmation - without.strengthAtConfirmation, 10)
 })

@@ -1,6 +1,6 @@
 # Velox V1: demand zones vs order blocks (design proposal)
 
-Status: **proposal, waiting for approval. Nothing below has been built yet.**
+Status: **approved and built** (engine 0.3.0 and the TradingView script), with these choices: demand = thin wick band, order block = **full wick range** (`obRange = wick`), swing length 10, buy/sell signals removed.
 Written 19 October 2026, after the review of Velox V1 next to FluidTrades SMC Lite on XAUUSD 5m.
 
 ## What the review showed
@@ -62,9 +62,9 @@ On the **same** bullish break (`t`, origin `o`):
 
 1. **Origin candle:** starting at `o` and working back up to `obLookback` candles, take the first candle that **closed down** (`close < open`). If there is none, there is **no order block** for this break, but the demand zone still stands.
 2. **Edges** (`obRange`):
-   - `body` (default): from the candle's close up to its open.
+   - `wick` (default): its full low–high range.
+   - `body`: from the candle's close up to its open.
    - `hybrid`: from its low up to its open.
-   - `wick`: its full low–high range.
 3. **It must have caused the move.** Reject the order block if any of these is true:
    - `(close[t] − proximal) / ATR < obMinDisplacementATR` (the move away was too small).
    - Fewer than `minImpulseCandles` up-close candles between the order block and `t` have a body of at least `impulseBodyRatio` of their range.
@@ -102,8 +102,8 @@ Starting weights. They are settings and **not calibrated yet**.
 | FVG left by the departure | 10 | Timeframe | 15 |
 | Speed (`t − o` in candles) | 10 | Sits on a demand zone | 10 |
 | Freshness | 10 | Impulse quality (body ratio) | 10 |
-| Timeframe | 10 | Speed | 10 |
-| Higher-timeframe zone overlapping it | 5 | | |
+| Timeframe | 15 | Speed | 10 |
+| (Higher-timeframe overlap: planned, not yet scored) | | | |
 
 ## 3. Every setting
 
@@ -119,7 +119,7 @@ Starting weights. They are settings and **not calibrated yet**.
 | `departureBars` | 6 | Window for the no-BOS source |
 | `overlapLimit` | 0.5 | Drop a new zone that mostly overlaps a live one |
 | `obLookback` | 5 | How far back from the low to look for the last opposite-close candle |
-| `obRange` | `body` | `body` / `hybrid` / `wick` |
+| `obRange` | `wick` | `wick` / `body` / `hybrid` |
 | `obMinDisplacementATR` | 1.5 | Minimum move away for an order block |
 | `minImpulseCandles` | 2 | Strong candles needed in the move |
 | `impulseBodyRatio` | 0.5 | What counts as a strong candle (body ÷ range) |
