@@ -116,6 +116,7 @@ type Lvl
     int    breakerSince = na
     int    breakerBar = na
     int    breakerEnded = na
+    int    originBar = na // chart bar index of the origin candle (drawing is anchored to bars, not times)
 
 type Gap
     bool  bull
@@ -124,6 +125,7 @@ type Gap
     int   originTime
     int   confirmBar
     bool  filled = false
+    int   originBar = na
 
 type State
     array<float> o
@@ -157,6 +159,7 @@ type State
     bool  evChoch = false
     float evLevel = na
     int   evFromTime = na
+    int   evFromBar = na
     int   newZoneBar = na
     bool  newZoneBull = false
     int   newObBar = na
@@ -301,6 +304,7 @@ onBreak(State s, bool bull, int tfSec) =>
     s.evChoch := bull ? s.trend <= 0 : s.trend >= 0
     s.evLevel := bull ? s.shPrice : s.slPrice
     s.evFromTime := bar_index - swingBar < s.t.size() ? timeAt(s, swingBar) : na
+    s.evFromBar := swingBar
     s.trend := sign
     fromBar = math.max(swingBar + 1, bar_index - 499, bar_index - s.o.size() + 1)
     int o = fromBar
@@ -337,6 +341,7 @@ onBreak(State s, bool bull, int tfSec) =>
                 reach = bull ? low : high
                 zone = Lvl.new(bull, false, zTop, zBot, oTime, bar_index, a, base, math.round(base + 10))
                 zone.inside := sign * (reach - near) <= 0
+                zone.originBar := o
                 s.zones.push(zone)
                 s.newZoneBar := bar_index
                 s.newZoneBull := bull
@@ -375,6 +380,7 @@ onObBreak(State s, bool bull, int tfSec) =>
                 reach = bull ? low : high
                 nb = Lvl.new(bull, true, obTop, obBot, obTime, bar_index, a, base, math.round(base + 15))
                 nb.onZone := onZone
+                nb.originBar := obIdx
                 nb.inside := sign * (reach - (bull ? obTop : obBot)) <= 0
                 s.obs.push(nb)
                 s.newObBar := bar_index
@@ -442,7 +448,9 @@ velox(bool conf, int tfSec) =>
                     if s.fvgFirst.size() > 300
                         s.fvgFirst.shift()
                         s.fvgBull.shift()
-                    s.gaps.push(Gap.new(bull, math.round_to_mintick(top), math.round_to_mintick(bot), timeAt(s, bar_index - 1), bar_index))
+                    g = Gap.new(bull, math.round_to_mintick(top), math.round_to_mintick(bot), timeAt(s, bar_index - 1), bar_index)
+                    g.originBar := bar_index - 1
+                    s.gaps.push(g)
                     if s.gaps.size() > 100
                         s.gaps.shift()
 
@@ -552,10 +560,10 @@ inNyPm   = sessionBox(showNyPm, nyPmSess, "New York PM", nyPmCol)
 
 // ═════════════════════════════ BOS / CHoCH (drawn when the breaking candle closes) ═════════════════════════════
 
-if showStruct and barstate.isconfirmed and S.evBar == bar_index and not na(S.evFromTime)
+if showStruct and barstate.isconfirmed and S.evBar == bar_index and not na(S.evFromBar) and bar_index - S.evFromBar < 5000
     col = S.evBull ? demandCol : supplyCol
-    line.new(S.evFromTime, S.evLevel, time, S.evLevel, xloc = xloc.bar_time, color = col, style = S.evChoch ? line.style_dashed : line.style_solid)
-    label.new(int((S.evFromTime + time) / 2), S.evLevel, S.evChoch ? "CHoCH" : "BOS", xloc = xloc.bar_time, style = S.evBull ? label.style_label_down : label.style_label_up, color = color(na), textcolor = col, size = size.tiny)
+    line.new(S.evFromBar, S.evLevel, bar_index, S.evLevel, xloc = xloc.bar_index, color = col, style = S.evChoch ? line.style_dashed : line.style_solid)
+    label.new(int(math.floor((S.evFromBar + bar_index) / 2)), S.evLevel, S.evChoch ? "CHoCH" : "BOS", xloc = xloc.bar_index, style = S.evBull ? label.style_label_down : label.style_label_up, color = color(na), textcolor = col, size = size.tiny)
 
 // ═════════════════════════════ Drawing (redrawn on the last candle from the engine's state) ═════════════════════════════
 
@@ -566,7 +574,7 @@ statusText(Lvl z) =>
 
 zoneBox(int left, float top, float bot, color col, string status, string txt, int width) =>
     fade = status == "fresh" ? 70 : status == "tested" ? 78 : 88
-    drawn.push(box.new(left, top, time, bot, xloc = xloc.bar_time, extend = extend.right, border_color = color.new(col, status == "mitigated" ? 60 : 20), border_width = width, bgcolor = color.new(col, fade), text = txt, text_color = col, text_size = size.tiny, text_halign = text.align_center, text_valign = text.align_center))
+    drawn.push(box.new(left, top, bar_index, bot, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(col, status == "mitigated" ? 60 : 20), border_width = width, bgcolor = color.new(col, fade), text = txt, text_color = col, text_size = size.tiny, text_halign = text.align_center, text_valign = text.align_center))
 
 // Indexes of the n live items on one side nearest to price: demand/bullish at or below, supply/bearish at or above.
 nearest(array<Lvl> items, bool bull, int n, bool breakers) =>
@@ -588,7 +596,34 @@ nearest(array<Lvl> items, bool bull, int n, bool breakers) =>
             picked.push(best)
     picked
 
-barMs = chartSec * 1000
+// Every drawing is anchored to bar numbers (xloc.bar_index), never to times. Times projected into the
+// future, or higher-timeframe times that don't land on a chart candle, made boxes slide when the chart
+// was dragged. Higher-timeframe origins are converted to the first chart candle at or after them.
+var array<int> barTimes = array.new<int>()
+var int barBase = na
+if last_bar_index - bar_index <= 4900
+    if na(barBase)
+        barBase := bar_index
+    if bar_index - barBase >= barTimes.size()
+        barTimes.push(time)
+
+barAtTime(int t) =>
+    int res = bar_index
+    n = barTimes.size()
+    if n > 0 and not na(t)
+        int lo = 0
+        int hi = n - 1
+        if t <= barTimes.get(0)
+            res := barBase
+        else if t <= barTimes.get(n - 1)
+            while lo < hi
+                mid = int(math.floor((lo + hi) / 2))
+                if barTimes.get(mid) < t
+                    lo := mid + 1
+                else
+                    hi := mid
+            res := barBase + lo
+    res
 
 if barstate.islast
     for b in drawn
@@ -599,18 +634,18 @@ if barstate.islast
         for bull in array.from(true, false)
             for i in nearest(S.zones, bull, maxPerSide, false)
                 z = S.zones.get(i)
-                zoneBox(z.originTime, z.top, z.bottom, bull ? demandCol : supplyCol, z.status, (bull ? "DEMAND" : "SUPPLY") + " · " + str.tostring(z.strength) + statusText(z), 1)
+                zoneBox(z.originBar, z.top, z.bottom, bull ? demandCol : supplyCol, z.status, (bull ? "DEMAND" : "SUPPLY") + " · " + str.tostring(z.strength) + statusText(z), 1)
 
     if showOb
         for bull in array.from(true, false)
             for i in nearest(S.obs, bull, maxObSide, false)
                 b = S.obs.get(i)
                 col = bull ? obBullCol : obBearCol
-                drawn.push(box.new(b.originTime, b.top, time + extendR * barMs, b.bottom, xloc = xloc.bar_time, border_color = col, border_width = b.onZone ? 2 : 1, bgcolor = color.new(col, b.status == "fresh" ? 80 : 88), text = "OB", text_color = col, text_size = size.tiny, text_halign = text.align_left))
+                drawn.push(box.new(b.originBar, b.top, bar_index + extendR, b.bottom, xloc = xloc.bar_index, border_color = col, border_width = b.onZone ? 2 : 1, bgcolor = color.new(col, b.status == "fresh" ? 80 : 88), text = "OB", text_color = col, text_size = size.tiny, text_halign = text.align_left))
             if showBb
                 for i in nearest(S.obs, bull, maxBbSide, true)
                     b = S.obs.get(i)
-                    drawn.push(box.new(b.originTime, b.top, time + extendR * barMs, b.bottom, xloc = xloc.bar_time, border_color = bbCol, border_style = line.style_dashed, bgcolor = color.new(bbCol, 86), text = "BB", text_color = bbCol, text_size = size.tiny, text_halign = text.align_left))
+                    drawn.push(box.new(b.originBar, b.top, bar_index + extendR, b.bottom, xloc = xloc.bar_index, border_color = bbCol, border_style = line.style_dashed, bgcolor = color.new(bbCol, 86), text = "BB", text_color = bbCol, text_size = size.tiny, text_halign = text.align_left))
 
     if showFvg and S.gaps.size() > 0
         int shown = 0
@@ -618,7 +653,7 @@ if barstate.islast
             g = S.gaps.get(i)
             if shown < maxFvg
                 col = g.bull ? fvgBull : fvgBear
-                drawn.push(box.new(g.originTime, g.top, time + fvgExt * barMs, g.bottom, xloc = xloc.bar_time, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right))
+                drawn.push(box.new(g.originBar, g.top, bar_index + fvgExt, g.bottom, xloc = xloc.bar_index, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right))
                 shown += 1
 
     // Higher-timeframe zones, from closed higher-timeframe candles only.
@@ -628,7 +663,7 @@ if barstate.islast
             f = str.split(entry, "|")
             if f.size() == 6
                 isD = f.get(0) == "D"
-                zoneBox(int(str.tonumber(f.get(3))), str.tonumber(f.get(1)), str.tonumber(f.get(2)), isD ? demandCol : supplyCol, f.get(5), name + " " + (isD ? "DEMAND" : "SUPPLY") + " · " + f.get(4) + (f.get(5) == "mitigated" ? " · mitigated" : ""), 2)
+                zoneBox(barAtTime(int(str.tonumber(f.get(3)))), str.tonumber(f.get(1)), str.tonumber(f.get(2)), isD ? demandCol : supplyCol, f.get(5), name + " " + (isD ? "DEMAND" : "SUPPLY") + " · " + f.get(4) + (f.get(5) == "mitigated" ? " · mitigated" : ""), 2)
 
 // ═════════════════════════════ Alerts (on closed candles) ═════════════════════════════
 
