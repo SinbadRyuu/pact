@@ -5,14 +5,15 @@ Decisions (16 October 2026):
 1. **Name:** Velox V1.
 2. **Data:** PAXG (Coinbase) for now. **TradingView charts are coming to VT Impact soon**, and Velox must work on them.
 3. **Calculation:** on the server (approved).
-4. **Keep the full feature set:** EMAs, Fibonacci, dashboard and signals as well as supply and demand. Every **buy and sell signal carries a stop loss**, and **every take profit is 1:1** with it (entry 4000, SL 3990 → TP 4010).
+4. **Keep the full feature set:** Fibonacci, dashboard and signals as well as supply and demand. Every **buy and sell signal carries a stop loss**, and **every take profit is 1:1** with it (entry 4000, SL 3990 → TP 4010).
+5. **Include fair value gaps (FVGs). Exclude EMAs** (16 October 2026).
 
 ## Architecture
 
 ```
 candles (PAXG today, TradingView's feed later)
    ↓  normalise()                      @pact/velox: deterministic, versioned, tested
-engine: swings → zones → lifecycle → score → signals
+engine: swings → FVGs → zones → lifecycle → score → signals
    ↓  VeloxState (JSON)
 server: GET /api/v1/markets/instruments/{symbol}/velox?timeframe=15m&htf=1h,4h   (signed in, cached per closed candle)
    ↓
@@ -44,6 +45,7 @@ Before choosing TradingView's feed, note that **zones depend on the feed**. Chan
 | 4 | Lifecycle: fresh / tested / mitigated / invalid, touch events | **Done in the engine** |
 | 5 | Explainable 0–100 score | **Done** (weights not yet calibrated) |
 | + | Signals with SL and 1:1 TP | **Done in the engine** |
+| + | Fair value gaps: detection, fill tracking, zone confluence | **Done in the engine** (v0.2.0) |
 | 6 | Market structure: HH/HL/LH/LL, BOS, CHoCH | Next (can reuse `indicators/vt-structure`) |
 | 7 | Order-block confluence | |
 | 8 | Multi-timeframe 15m / 1h / 4h, confluence in the score | Aggregation done and tested; overlay and scoring to do |
@@ -51,7 +53,7 @@ Before choosing TradingView's feed, note that **zones depend on the feed**. Chan
 | 10 | Historical replay / anti-repaint | Harness done; extend with every phase |
 | 11 | Live updates | Needs the website source |
 | 12 | Claude explanations | Last |
-| + | EMAs, Fibonacci of the current leg, dashboard (trend, strength, volume, session, 5m/15m/1h), session tags, zone-entry alerts | After phase 8, as optional layers that are off by default, so the chart stays clean |
+| + | Fibonacci of the current leg, dashboard (trend, strength, volume, session, 5m/15m/1h), session tags, zone-entry alerts | After phase 8, as optional layers that are off by default, so the chart stays clean. **No EMAs.** |
 
 ## Blocked on
 

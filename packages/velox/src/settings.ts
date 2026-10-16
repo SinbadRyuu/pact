@@ -1,6 +1,6 @@
 import type { Timeframe } from './types.ts'
 
-export const ENGINE_VERSION = `0.1.0`
+export const ENGINE_VERSION = `0.2.0`
 
 export type ZoneWidth = `body-wick` | `wick` | `body`
 
@@ -49,7 +49,13 @@ export type VeloxSettings = {
     stopBufferATR: number
   }
 
-  weights: Record<`displacement` | `structure` | `base` | `speed` | `timeframe` | `freshness`, number>
+  fvg: {
+    enabled: boolean
+    /** Gaps smaller than this many ATRs are ignored. */
+    minSizeATR: number
+  }
+
+  weights: Record<`displacement` | `structure` | `fvg` | `base` | `speed` | `timeframe` | `freshness`, number>
   timeframeScore: Record<Timeframe, number>
 }
 
@@ -70,12 +76,14 @@ export const DEFAULT_SETTINGS: VeloxSettings = {
   invalidationATR: 0,
   signals: { enabled: true, minStrength: 60, stopBufferATR: 0.1 },
   // Starting weights, out of 100. Not calibrated yet: they are there to be tuned against historical results.
-  weights: { displacement: 35, structure: 20, base: 15, speed: 10, timeframe: 10, freshness: 10 },
+  fvg: { enabled: true, minSizeATR: 0.3 },
+  weights: { displacement: 30, structure: 20, fvg: 10, base: 15, speed: 5, timeframe: 10, freshness: 10 },
   timeframeScore: { '5m': 0.2, '15m': 0.4, '1h': 0.7, '4h': 1, '1d': 1 },
 }
 
-export type VeloxSettingsInput = Partial<Omit<VeloxSettings, `signals` | `weights` | `timeframeScore`>> & {
+export type VeloxSettingsInput = Partial<Omit<VeloxSettings, `signals` | `fvg` | `weights` | `timeframeScore`>> & {
   signals?: Partial<VeloxSettings[`signals`]>
+  fvg?: Partial<VeloxSettings[`fvg`]>
   weights?: Partial<VeloxSettings[`weights`]>
   timeframeScore?: Partial<VeloxSettings[`timeframeScore`]>
 }
@@ -85,6 +93,7 @@ export function resolveSettings(input: VeloxSettingsInput = {}): VeloxSettings {
     ...DEFAULT_SETTINGS,
     ...input,
     signals: { ...DEFAULT_SETTINGS.signals, ...input.signals },
+    fvg: { ...DEFAULT_SETTINGS.fvg, ...input.fvg },
     weights: { ...DEFAULT_SETTINGS.weights, ...input.weights },
     timeframeScore: { ...DEFAULT_SETTINGS.timeframeScore, ...input.timeframeScore },
   }
@@ -100,6 +109,7 @@ export function resolveSettings(input: VeloxSettingsInput = {}): VeloxSettings {
   int(s.departureBars, `departureBars`, 1, 100)
   for (const k of [`baseRangeATR`, `minWidthATR`, `maxWidthATR`, `displacementATR`, `touchExitATR`, `invalidationATR`] as const) pos(s[k], k)
   pos(s.signals.stopBufferATR, `signals.stopBufferATR`)
+  pos(s.fvg.minSizeATR, `fvg.minSizeATR`)
   if (s.minWidthATR > s.maxWidthATR) throw new RangeError(`minWidthATR must not exceed maxWidthATR`)
   if (!(s.mitigationDepth > 0 && s.mitigationDepth <= 1)) throw new RangeError(`mitigationDepth must be in (0, 1]`)
   if (!(s.overlapLimit >= 0 && s.overlapLimit <= 1)) throw new RangeError(`overlapLimit must be in [0, 1]`)

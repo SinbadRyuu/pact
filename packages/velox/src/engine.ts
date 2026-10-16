@@ -2,7 +2,7 @@ import { TIMEFRAME_SECONDS } from './candles.ts'
 import { stableHash } from './hash.ts'
 import { scoreZone, type ScoreInput } from './score.ts'
 import { ENGINE_VERSION, resolveSettings, type VeloxSettings, type VeloxSettingsInput } from './settings.ts'
-import type { Candle, DevelopingZone, Instrument, Signal, SupplyDemandZone, Swing, VeloxState, ZoneStatus, ZoneType } from './types.ts'
+import type { Candle, DevelopingZone, FairValueGap, Instrument, Signal, SupplyDemandZone, Swing, VeloxState, ZoneStatus, ZoneType } from './types.ts'
 
 export type Engine = {
   readonly settings: VeloxSettings
@@ -51,6 +51,7 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
   let pending: Candidate[] = []
   const zones: LiveZone[] = []
   const signals: LiveSignal[] = []
+  const fvgs: { gap: FairValueGap; first: number; confirmedIndex: number }[] = []
 
   const round = (v: number) => Number(v.toFixed(instrument.pricePrecision))
   const closeOf = (i: number) => candles[i]!.time + step
@@ -136,6 +137,64 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
     return false
   }
 
+  // Bullish FVG on candles i-2, i-1, i: low[i] > high[i-2]. Bearish: high[i] < low[i-2].
+  // Gaps under fvg.minSizeATR are ignored so the chart is not covered in slivers.
+  function detectFvg(i: number) {
+    if (!settings.fvg.enabled || i < 2) return
+    const a = atr[i]
+    if (a == null || !(a > 0)) return
+    const first = c(i - 2)
+    const third = c(i)
+    for (const direction of [`bullish`, `bearish`] as const) {
+      const low = direction === `bullish` ? first.high : third.high
+      const high = direction === `bullish` ? third.low : first.low
+      if (!(high > low) || (high - low) / a < settings.fvg.minSizeATR) continue
+      const gap: FairValueGap = {
+        id: `${instrument.symbol}:${instrument.provider}:${instrument.timeframe}:fvg:${direction}:${c(i - 1).time}`,
+        direction,
+        symbol: instrument.symbol,
+        provider: instrument.provider,
+        timeframe: instrument.timeframe,
+        high: round(high),
+        low: round(low),
+        originTime: c(i - 1).time,
+        confirmedAt: closeOf(i),
+        sizeATR: Number(((high - low) / a).toFixed(2)),
+        status: `open`,
+        statusChangedAt: closeOf(i),
+        filled: 0,
+        engineVersion: ENGINE_VERSION,
+      }
+      fvgs.push({ gap, first: i - 2, confirmedIndex: i })
+    }
+  }
+
+  // Fill is measured by wicks: how far price has traded back into the gap, 0 to 1.
+  function runFvgLifecycle(i: number) {
+    const k = c(i)
+    for (const f of fvgs) {
+      const g = f.gap
+      if (f.confirmedIndex >= i || g.status === `filled`) continue
+      const height = g.high - g.low
+      const depth = g.direction === `bullish` ? (g.high - k.low) / height : (k.high - g.low) / height
+      if (depth <= g.filled) continue
+      g.filled = Number(Math.min(1, depth).toFixed(4))
+      const status = g.filled >= 1 ? `filled` : `partial`
+      if (status !== g.status) {
+        g.status = status
+        g.statusChangedAt = closeOf(i)
+      }
+    }
+  }
+
+  // An FVG in the zone's direction that formed inside the departure (from the base onwards) and was
+  // already confirmed. The first one is recorded.
+  function departureFvg(cand: Candidate, i: number): string | null {
+    const direction = cand.type === `demand` ? `bullish` : `bearish`
+    const f = fvgs.find((x) => x.gap.direction === direction && x.first >= cand.b0 && x.first <= cand.b1 + settings.departureBars && x.confirmedIndex <= i)
+    return f ? f.gap.id : null
+  }
+
   // A candidate becomes a zone when, within departureBars after its base, price closed displacementATR
   // beyond the near edge (and, if required, beyond the last opposite swing). It dies if price closes
   // beyond its far edge first, or the window ends.
@@ -173,11 +232,13 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
   }
 
   function confirm(cand: Candidate, i: number, displacementATR: number, departureBars: number, broke: { swingId: string; price: number } | null) {
+    const fvgId = departureFvg(cand, i)
     const scoreInput: ScoreInput = {
       displacementATR,
       departureBars,
       heightATR: Math.abs(cand.near - cand.far) / cand.atr,
       brokeStructure: broke !== null,
+      fvg: fvgId !== null,
       timeframe: instrument.timeframe,
     }
     const scored = scoreZone(scoreInput, `fresh`, 0, settings)
@@ -206,6 +267,7 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
         departureBars,
         baseCandles: cand.b1 - cand.b0 + 1,
         brokeStructure: broke,
+        fvgId,
         atr: Number(cand.atr.toFixed(instrument.pricePrecision + 2)),
       },
       engineVersion: ENGINE_VERSION,
@@ -330,6 +392,8 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
       updateAtr(i)
       trackSignals(i)
       runLifecycle(i)
+      runFvgLifecycle(i)
+      detectFvg(i)
       detectSwing(i)
       checkCandidates(i)
     },
@@ -352,6 +416,7 @@ export function createEngine(instrument: Instrument, input: VeloxSettingsInput =
         candles: candles.length,
         swings,
         zones: zones.map((z) => z.zone),
+        fvgs: fvgs.map((f) => f.gap),
         developing,
         signals: signals.map(({ index: _index, ...s }) => s),
       })

@@ -37,6 +37,8 @@ test('the walk produces enough zones and signals to make the replay meaningful',
   assert.ok(final.zones.filter((z) => z.type === `demand`).length >= 5, `demand zones: ${final.zones.length}`)
   assert.ok(final.zones.filter((z) => z.type === `supply`).length >= 5)
   assert.ok(final.signals.length >= 5)
+  assert.ok(final.fvgs.length >= 20 && final.fvgs.some((g) => g.status === `open`) && final.fvgs.some((g) => g.status === `filled`))
+  assert.ok(final.zones.some((z) => z.source.fvgId !== null))
   assert.ok(final.zones.some((z) => z.status === `invalid`) && final.zones.some((z) => z.status !== `invalid`))
 })
 
@@ -48,6 +50,8 @@ test('no zone, swing or signal appears before the candle that confirmed it', () 
   for (const snap of snapshots) {
     for (const z of snap.zones) assert.ok(z.confirmedAt <= snap.asOf!, `${z.id} known at ${z.confirmedAt} but shown at ${snap.asOf}`)
     for (const s of snap.swings) assert.ok(s.confirmedAt <= snap.asOf!)
+    for (const g of snap.fvgs) assert.ok(g.confirmedAt <= snap.asOf! && g.statusChangedAt <= snap.asOf!)
+    for (const z of snap.zones) if (z.source.fvgId) assert.ok(snap.fvgs.some((g) => g.id === z.source.fvgId && g.confirmedAt <= z.confirmedAt))
     for (const s of snap.signals) assert.ok(s.time < snap.asOf!)
     for (const z of snap.zones) for (const e of z.events) assert.ok(e.time > z.confirmedAt && e.time <= snap.asOf!)
   }
@@ -64,6 +68,7 @@ test('confirmation times are honest: everything first appears at exactly the can
   for (const snap of snapshots) {
     for (const z of snap.zones) firstAppearance(z.id, z.confirmedAt, snap.asOf!)
     for (const s of snap.swings) firstAppearance(s.id, s.confirmedAt, snap.asOf!)
+    for (const g of snap.fvgs) firstAppearance(g.id, g.confirmedAt, snap.asOf!)
     for (const s of snap.signals) firstAppearance(s.id, s.time + 900, snap.asOf!)
   }
 })
@@ -93,6 +98,23 @@ test('zone status only moves forward, and touches only go up', () => {
         assert.deepEqual(z.events.slice(0, prev.events.length), prev.events, `${z.id}: history rewritten`)
       }
       last.set(z.id, z)
+    }
+  }
+})
+
+test('an FVG never changes its edges or dates, its fill only deepens, and it never disappears', () => {
+  const rank = { open: 0, partial: 1, filled: 2 }
+  const last = new Map<string, VeloxState[`fvgs`][number]>()
+  for (const snap of snapshots) {
+    const ids = new Set(snap.fvgs.map((g) => g.id))
+    for (const id of last.keys()) assert.ok(ids.has(id), `${id} vanished`)
+    for (const g of snap.fvgs) {
+      const prev = last.get(g.id)
+      if (prev) {
+        assert.deepEqual([g.direction, g.high, g.low, g.originTime, g.confirmedAt, g.sizeATR], [prev.direction, prev.high, prev.low, prev.originTime, prev.confirmedAt, prev.sizeATR])
+        assert.ok(g.filled >= prev.filled && rank[g.status] >= rank[prev.status])
+      }
+      last.set(g.id, g)
     }
   }
 })

@@ -7,6 +7,7 @@ export type ScoreInput = {
   departureBars: number
   heightATR: number
   brokeStructure: boolean
+  fvg: boolean
   timeframe: Timeframe
 }
 
@@ -18,6 +19,7 @@ const one = (v: number) => Math.round(v * 10) / 10
  *
  *  displacement  how far price left: half marks at the threshold, full marks at twice it
  *  structure     whether the departure closed beyond the last opposite swing
+ *  fvg           whether the departure left a fair value gap in the zone's direction
  *  base          how tight the zone is: full at minWidthATR, none at maxWidthATR
  *  speed         how quickly the threshold was reached: full on the first candle
  *  timeframe     the timeframe's own weight (4h counts more than 15m)
@@ -40,6 +42,12 @@ export function scoreZone(input: ScoreInput, status: ZoneStatus, touches: number
       `Structure break`,
       input.brokeStructure ? 1 : 0,
       input.brokeStructure ? `The departure closed beyond the last opposite swing.` : `The departure did not break the last opposite swing.`,
+    ],
+    [
+      `fvg`,
+      `Fair value gap`,
+      input.fvg ? 1 : 0,
+      input.fvg ? `The departure left a fair value gap.` : `The departure left no fair value gap.`,
     ],
     [
       `base`,

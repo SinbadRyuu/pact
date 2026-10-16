@@ -49,7 +49,7 @@ export type ZoneStatus = `fresh` | `tested` | `mitigated` | `invalid`
 
 /** One line of the score breakdown, so every point in a zone's strength can be explained. */
 export type ScoreFactor = {
-  key: `displacement` | `structure` | `base` | `speed` | `timeframe` | `freshness`
+  key: `displacement` | `structure` | `fvg` | `base` | `speed` | `timeframe` | `freshness`
   label: string
   points: number
   max: number
@@ -100,9 +100,39 @@ export type SupplyDemandZone = {
     baseCandles: number
     /** The opposite swing the departure closed beyond, if it did by confirmation. */
     brokeStructure: { swingId: string; price: number } | null
+    /** A fair value gap the departure left behind, in the zone's direction, known by confirmation. */
+    fvgId: string | null
     atr: number
   }
 
+  engineVersion: string
+}
+
+/**
+ * A three-candle imbalance. Bullish: the third candle's low is above the first candle's high, leaving
+ * the range between them untraded. Bearish is the mirror. Drawn from the middle candle; known at the
+ * close of the third.
+ *
+ * open     price has not traded back into the gap
+ * partial  price has traded into it (`filled` says how far, 0–1)
+ * filled   price has traded all the way through it
+ */
+export type FairValueGap = {
+  id: string
+  direction: `bullish` | `bearish`
+  symbol: string
+  provider: string
+  timeframe: Timeframe
+  high: number
+  low: number
+  /** Open time of the middle candle. */
+  originTime: number
+  confirmedAt: number
+  sizeATR: number
+  status: `open` | `partial` | `filled`
+  statusChangedAt: number
+  /** Deepest fill so far, from 0 (untouched) to 1 (fully filled). */
+  filled: number
   engineVersion: string
 }
 
@@ -147,6 +177,7 @@ export type VeloxState = {
   candles: number
   swings: Swing[]
   zones: SupplyDemandZone[]
+  fvgs: FairValueGap[]
   developing: DevelopingZone[]
   signals: Signal[]
 }

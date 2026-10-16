@@ -2,7 +2,7 @@
 
 `@pact/velox` is the deterministic engine behind **Velox V1**, the PACT supply and demand indicator. It is pure TypeScript: no React, no DOM, no network, no randomness and no clock. **The same candles and settings always give the same zones, signals and scores.**
 
-Engine version: `0.1.0`, recorded on every zone, signal and state.
+Engine version: `0.2.0`, recorded on every zone, signal and state.
 
 ```sh
 npm test         # node --test (Node 22.18+ runs the TypeScript directly)
@@ -17,7 +17,7 @@ import { createEngine, normalise } from '@pact/velox'
 const { candles, issues } = normalise(providerCandles, { timeframe: '15m' })
 const engine = createEngine({ symbol: 'XAUUSD', provider: 'coinbase-paxg', timeframe: '15m', pricePrecision: 2 })
 for (const c of candles) engine.push(c) // CLOSED candles only, oldest first
-const state = engine.state()            // zones, signals, swings, developing candidates
+const state = engine.state()            // zones, fair value gaps, signals, swings, developing candidates
 ```
 
 On a live feed, keep the engine and `push` each candle **when it closes**. Don't recalculate history on every tick. `cacheKey(instrument, settings)` gives a server cache key: provider, symbol, timeframe, settings hash and engine version.
@@ -29,7 +29,7 @@ All times are Unix seconds, UTC. A candle's `time` is when it **opened**. It is 
 - `originTime` is where something happened, so the chart can draw the zone from there.
 - `confirmedAt` is the close of the candle on which the engine could first know it. **Nothing exists in the state before its `confirmedAt`**, and the replay tests check this candle by candle.
 
-## Definitions (v0.1.0)
+## Definitions (v0.2.0)
 
 Every number below is a setting. Defaults are in brackets.
 
@@ -48,6 +48,10 @@ The height is then kept between `minWidthATR` (0.1) and `maxWidthATR` (1.5) × A
 
 A new zone is skipped if `overlapLimit` (50%) of its height overlaps a fresh or tested zone of the same type.
 
+**Fair value gap (FVG).** A three-candle imbalance. **Bullish:** the third candle's low is above the first candle's high, and the gap is the range between them. **Bearish:** the third candle's high is below the first candle's low. The gap is drawn from the middle candle and confirmed when the third candle closes. Gaps smaller than `fvg.minSizeATR` (0.3) × ATR are ignored.
+- Status: **open** → **partial** (price has traded into it; `filled` records the deepest fill, 0–1, measured by wicks) → **filled** (traded all the way through). Edges and dates never change.
+- FVGs are shown in their own right, and also feed the zone score. A zone gets FVG confluence (`source.fvgId`) when its departure, from the base candle onward, left an FVG in the zone's direction that was already confirmed when the zone was.
+
 **Lifecycle.** The order below is checked on every candle after confirmation. Status only ever moves forward.
 
 | Status | Rule (demand; supply mirrored) |
@@ -63,10 +67,11 @@ A new zone is skipped if `overlapLimit` (50%) of its height overlaps a fresh or 
 
 | Factor | Weight | Full marks when |
 |---|---|---|
-| Departure | 35 | the close reaches 2× the displacement threshold (half marks at the threshold) |
+| Departure | 30 | the close reaches 2× the displacement threshold (half marks at the threshold) |
 | Structure break | 20 | the departure closed beyond the last opposite swing |
+| Fair value gap | 10 | the departure left an FVG in the zone's direction |
 | Tight base | 15 | the zone is `minWidthATR` tall (none at `maxWidthATR`) |
-| Speed | 10 | the threshold was reached on the first candle after the base |
+| Speed | 5 | the threshold was reached on the first candle after the base |
 | Timeframe | 10 | 4h/1d (1h 70%, 15m 40%, 5m 20%) |
 | Freshness | 10 | fresh (once touched 50%, then 0) |
 
@@ -82,14 +87,14 @@ A new zone is skipped if `overlapLimit` (50%) of its height overlaps a fresh or 
 
 ## What the tests prove
 
-- **No repainting:** 3,000 candles are fed one at a time with the state saved after each. Once a zone, swing or signal appears, its confirmed facts never change and it never disappears. Status only moves forward. Event history is never rewritten.
-- **No back-dating:** everything first appears on exactly the candle its `confirmedAt` names. Two planted cheats were caught: zone confirmation back-dated to the swing, and swings confirmed one candle early.
+- **No repainting:** 3,000 candles are fed one at a time with the state saved after each. Once a zone, FVG, swing or signal appears, its confirmed facts never change and it never disappears. Status only moves forward. Event history is never rewritten.
+- **No back-dating:** everything first appears on exactly the candle its `confirmedAt` names. Three planted cheats were caught: zone confirmation back-dated to the swing, swings confirmed one candle early, and FVGs confirmed one candle early.
 - **Live = historical:** replaying bar by bar and recalculating from history give identical results.
 - **Higher timeframes:** a 1h candle is unavailable until its last 15m candle closes. A missing quarter doesn't close an hour early. Partial first buckets are dropped. 4h is aligned to 00/04/08… UTC.
 - **Data:** duplicates, out-of-order candles, impossible prices, gaps and off-grid times are all handled and reported.
-- **Exact behaviour** on a hand-built gold path: zone edges, confirmation time, touches, every lifecycle step, signal levels and outcome, with supply checked as the mirror of demand.
+- **Exact behaviour** on a hand-built gold path: zone edges, confirmation time, touches, every lifecycle step, signal levels and outcome, FVG edges, fill and confluence, with supply and bearish checked as the mirror of demand and bullish.
 
-## Not in v0.1.0 yet
+## Not in v0.2.0 yet
 
 Higher-timeframe confluence in the score, CHoCH and order blocks, and clustering beyond the overlap rule are planned (phases 6–8). Candle history is kept in memory. A server will want to cap it.
 
