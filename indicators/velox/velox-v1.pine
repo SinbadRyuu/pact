@@ -560,7 +560,7 @@ inNyPm   = sessionBox(showNyPm, nyPmSess, "New York PM", nyPmCol)
 
 // ═════════════════════════════ BOS / CHoCH (drawn when the breaking candle closes) ═════════════════════════════
 
-if showStruct and barstate.isconfirmed and S.evBar == bar_index and not na(S.evFromBar) and bar_index - S.evFromBar < 5000
+if showStruct and barstate.isconfirmed and S.evBar == bar_index and not na(S.evFromBar) and bar_index - S.evFromBar < 3000
     col = S.evBull ? demandCol : supplyCol
     line.new(S.evFromBar, S.evLevel, bar_index, S.evLevel, xloc = xloc.bar_index, color = col, style = S.evChoch ? line.style_dashed : line.style_solid)
     label.new(int(math.floor((S.evFromBar + bar_index) / 2)), S.evLevel, S.evChoch ? "CHoCH" : "BOS", xloc = xloc.bar_index, style = S.evBull ? label.style_label_down : label.style_label_up, color = color(na), textcolor = col, size = size.tiny)
@@ -572,9 +572,15 @@ var array<box> drawn = array.new<box>()
 statusText(Lvl z) =>
     z.status == "mitigated" ? " · mitigated" : z.touches > 0 ? " · T" + str.tostring(z.touches) : ""
 
+// TradingView only lets a drawing reach back so many candles (about 4,900 here), and the limit is counted
+// from the current candle, so it moves as new candles print. Keep every left edge well inside it.
+MAX_BACK = 3000
+clampX(int x) =>
+    math.max(x, bar_index - MAX_BACK)
+
 zoneBox(int left, float top, float bot, color col, string status, string txt, int width) =>
     fade = status == "fresh" ? 70 : status == "tested" ? 78 : 88
-    drawn.push(box.new(left, top, bar_index, bot, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(col, status == "mitigated" ? 60 : 20), border_width = width, bgcolor = color.new(col, fade), text = txt, text_color = col, text_size = size.tiny, text_halign = text.align_center, text_valign = text.align_center))
+    drawn.push(box.new(clampX(left), top, bar_index, bot, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(col, status == "mitigated" ? 60 : 20), border_width = width, bgcolor = color.new(col, fade), text = txt, text_color = col, text_size = size.tiny, text_halign = text.align_center, text_valign = text.align_center))
 
 // Indexes of the n live items on one side nearest to price: demand/bullish at or below, supply/bearish at or above.
 nearest(array<Lvl> items, bool bull, int n, bool breakers) =>
@@ -601,7 +607,7 @@ nearest(array<Lvl> items, bool bull, int n, bool breakers) =>
 // was dragged. Higher-timeframe origins are converted to the first chart candle at or after them.
 var array<int> barTimes = array.new<int>()
 var int barBase = na
-if last_bar_index - bar_index <= 4900
+if last_bar_index - bar_index <= 3000
     if na(barBase)
         barBase := bar_index
     if bar_index - barBase >= barTimes.size()
@@ -641,11 +647,11 @@ if barstate.islast
             for i in nearest(S.obs, bull, maxObSide, false)
                 b = S.obs.get(i)
                 col = bull ? obBullCol : obBearCol
-                drawn.push(box.new(b.originBar, b.top, bar_index + extendR, b.bottom, xloc = xloc.bar_index, border_color = col, border_width = b.onZone ? 2 : 1, bgcolor = color.new(col, b.status == "fresh" ? 80 : 88), text = "OB", text_color = col, text_size = size.tiny, text_halign = text.align_left))
+                drawn.push(box.new(clampX(b.originBar), b.top, bar_index + extendR, b.bottom, xloc = xloc.bar_index, border_color = col, border_width = b.onZone ? 2 : 1, bgcolor = color.new(col, b.status == "fresh" ? 80 : 88), text = "OB", text_color = col, text_size = size.tiny, text_halign = text.align_left))
             if showBb
                 for i in nearest(S.obs, bull, maxBbSide, true)
                     b = S.obs.get(i)
-                    drawn.push(box.new(b.originBar, b.top, bar_index + extendR, b.bottom, xloc = xloc.bar_index, border_color = bbCol, border_style = line.style_dashed, bgcolor = color.new(bbCol, 86), text = "BB", text_color = bbCol, text_size = size.tiny, text_halign = text.align_left))
+                    drawn.push(box.new(clampX(b.originBar), b.top, bar_index + extendR, b.bottom, xloc = xloc.bar_index, border_color = bbCol, border_style = line.style_dashed, bgcolor = color.new(bbCol, 86), text = "BB", text_color = bbCol, text_size = size.tiny, text_halign = text.align_left))
 
     if showFvg and S.gaps.size() > 0
         int shown = 0
@@ -653,7 +659,7 @@ if barstate.islast
             g = S.gaps.get(i)
             if shown < maxFvg
                 col = g.bull ? fvgBull : fvgBear
-                drawn.push(box.new(g.originBar, g.top, bar_index + fvgExt, g.bottom, xloc = xloc.bar_index, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right))
+                drawn.push(box.new(clampX(g.originBar), g.top, bar_index + fvgExt, g.bottom, xloc = xloc.bar_index, border_color = color.new(col, 60), bgcolor = color.new(col, 85), text = "FVG", text_color = color.new(col, 20), text_size = size.tiny, text_halign = text.align_right))
                 shown += 1
 
     // Higher-timeframe zones, from closed higher-timeframe candles only.

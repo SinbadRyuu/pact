@@ -27,5 +27,5 @@ There are no buy/sell signals and no Fibonacci.
 
 - **Nothing repaints.** Breaks, zones and order blocks are only created when a candle closes, and higher-timeframe zones use the last closed higher-timeframe candle. A zone is drawn from its low, but only appears once the breaking candle has closed.
 - With a swing length of 10 (as in the FluidTrades reference), a swing is confirmed 10 candles after it happens. Lower it for more zones.
-- Every box, line and label is anchored to **candles** (bar numbers), not times, so drawings stay in place when the chart is dragged or zoomed. Higher-timeframe zones start at the first chart candle at or after their higher-timeframe candle (at most about 4,900 candles back).
+- Every box, line and label is anchored to **candles** (bar numbers), not times, so drawings stay in place when the chart is dragged or zoomed. Higher-timeframe zones start at the first chart candle at or after their higher-timeframe candle (at most 3,000 candles back).
 - It runs on TradingView's feed (for example OANDA:XAUUSD), so zones can differ slightly from the website, which uses PAXG.
