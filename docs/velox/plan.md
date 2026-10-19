@@ -8,6 +8,7 @@ Decisions (16 October 2026):
 4. **Keep the full feature set:** Fibonacci, dashboard and signals as well as supply and demand. Every **buy and sell signal carries a stop loss**, and **every take profit is 1:1** with it (entry 4000, SL 3990 → TP 4010).
 5. **Include fair value gaps (FVGs). Exclude EMAs** (16 October 2026).
 6. **Demand zones are the wick of the low that broke the high; order blocks are the last opposite-close candle, full wick range; swing length 10; buy/sell signals and Fibonacci removed** (19 October 2026). This replaces decision 4's signals and Fibonacci. See `zones-and-order-blocks.md`.
+7. **Entries return with three targets: TP1 0.7R, TP2 1.5R, TP3 2R**, tuned for XAUUSD on 15m, with an on-chart backtest table (19 October 2026). In the TradingView script; not yet in the engine.
 
 ## Architecture
 

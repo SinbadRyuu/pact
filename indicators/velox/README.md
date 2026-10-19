@@ -12,9 +12,12 @@
 | **BOS / CHoCH** | Drawn when the breaking candle closes. |
 | **Sessions** (UK time, outlined boxes) | Asia 01:00–04:50, London 07:00–09:55, New York AM 13:30–15:55, New York PM 18:30–20:55. |
 
-There are no buy/sell signals and no Fibonacci.
+| **Trades** | Entry on the close of a candle that wicks into a zone or order block on its **first touch** and closes back out. SL beyond the level (min 0.5, max 2 ATR). **TP1 0.7R, TP2 1.5R, TP3 2R**, SL to entry after TP1, closed after 48 candles. Only with chart and higher-timeframe structure, only in London/NY on 1H and below, one trade at a time. |
+| **Backtest table** | Closed trades on the loaded history: TP1/TP2/TP3 hit rates, stopped before TP1, net R, average R, profit factor. Thirds closed at each TP; spread + slippage (0.30) deducted; if a candle hits SL and a TP, the SL counts. |
 
-**Alerts:** new demand zone, new supply zone, new bullish/bearish order block, and price reaching a fresh demand/supply zone. All fire on closed candles.
+No Fibonacci.
+
+**Alerts:** long/short entry and trade closed (with prices, via "Any alert() function call"), new demand zone, new supply zone, new bullish/bearish order block, and price reaching a fresh demand/supply zone. All fire on closed candles.
 
 ## Install
 
