@@ -83,24 +83,21 @@ htfMode    = input.string("Auto", "Higher timeframe", options = ["Auto", "Manual
 htfManual  = input.timeframe("240", "Manual timeframe", group = grpHtf)
 htfPerSide = input.int(2, "Zones per side", minval = 1, maxval = 3, group = grpHtf)
 
-grpT = "Trades: entry, SL, TP1–TP3"
-showTrades = input.bool(true, "Show trades", group = grpT, tooltip = "Entry on the close of a candle that rejects a level on its first touch. One trade at a time. Every distance is in ATR, so it adapts to each timeframe and to gold's volatility.")
+grpT = "Trades: entry, SL, TP"
+showTrades = input.bool(true, "Show trades", group = grpT, tooltip = "Entry on the close of a candle that rejects a zone or order block on its first touch. One take profit, one stop loss, one trade at a time.")
 tradeFrom  = input.string("Both", "Enter from", options = ["Zones", "Order blocks", "Both"], group = grpT)
-tp1R       = input.float(0.7, "TP1 (R)", minval = 0.1, step = 0.1, inline = "tp", group = grpT)
-tp2R       = input.float(1.5, "TP2 (R)", minval = 0.1, step = 0.1, inline = "tp", group = grpT)
-tp3R       = input.float(2.0, "TP3 (R)", minval = 0.1, step = 0.1, inline = "tp", group = grpT)
+tpPips     = input.float(100, "Take profit (pips)", minval = 1, step = 10, group = grpT)
+rr         = input.float(1.0, "Reward : risk", minval = 0.1, step = 0.1, group = grpT, tooltip = "1 = the stop loss is the same distance as the take profit (100 pips each).")
+pipSize    = input.float(0.10, "Pip size", minval = 0.00001, step = 0.01, group = grpT, tooltip = "Gold: 1 pip = 0.10, so 100 pips = $10.")
 minStr     = input.int(50, "Min level strength", minval = 0, maxval = 100, group = grpT, tooltip = "Not calibrated yet. Tune it with the backtest table.")
 armBars    = input.int(3, "Rejection within (candles of first touch)", minval = 0, maxval = 20, group = grpT)
-slBufATR   = input.float(0.1, "SL beyond the level by (× ATR)", minval = 0, step = 0.05, group = grpT)
-minRiskATR = input.float(0.5, "Min stop distance (× ATR)", minval = 0.05, step = 0.05, group = grpT, tooltip = "A tighter stop is widened to this, so normal noise doesn't take it out.")
-maxRiskATR = input.float(2.0, "Max stop distance (× ATR)", minval = 0.1, step = 0.1, group = grpT, tooltip = "Skip the trade if the stop would be further than this (entry too far from the level).")
-beAfterTp1 = input.bool(true, "Move SL to entry after TP1", group = grpT)
+fitStop    = input.bool(true, "Only if the level sits inside the stop", group = grpT, tooltip = "Skip the trade if the level's far edge is beyond the stop loss, so the stop is always behind the level.")
 maxHold    = input.int(48, "Close after (candles)", minval = 1, maxval = 2000, group = grpT, tooltip = "48 candles = 12 hours on 15m.")
 needTrend  = input.bool(true, "Only with chart structure", group = grpT)
 needHtf    = input.bool(true, "Only with higher-timeframe structure", group = grpT)
 killOnly   = input.bool(true, "Enter only in London / New York sessions (1H and below)", group = grpT)
-costPx     = input.float(0.30, "Spread + slippage per trade (price)", minval = 0, step = 0.05, group = grpT, tooltip = "Taken off every trade's result in the backtest table.")
-keepTrades = input.int(5, "Trades drawn", minval = 1, maxval = 50, group = grpT)
+costPips   = input.float(3, "Spread + slippage per trade (pips)", minval = 0, step = 0.5, group = grpT, tooltip = "Taken off every trade in the backtest table.")
+keepTrades = input.int(10, "Trades drawn", minval = 1, maxval = 50, group = grpT)
 showStats  = input.bool(true, "Show backtest table", group = grpT)
 
 grpC = "Colours"
@@ -591,108 +588,84 @@ if showStruct and barstate.isconfirmed and S.evBar == bar_index and not na(S.evF
     line.new(S.evFromBar, S.evLevel, bar_index, S.evLevel, xloc = xloc.bar_index, color = col, style = S.evChoch ? line.style_dashed : line.style_solid)
     label.new(int(math.floor((S.evFromBar + bar_index) / 2)), S.evLevel, S.evChoch ? "CHoCH" : "BOS", xloc = xloc.bar_index, style = S.evBull ? label.style_label_down : label.style_label_up, color = color(na), textcolor = col, size = size.tiny)
 
-// ═════════════════════════════ Trades: entry, SL, TP1–TP3 (decided on closed candles only) ═════════════════════════════
+// ═════════════════════════════ Trades: entry, SL, TP (decided on closed candles only) ═════════════════════════════
 // Entry: the close of a candle that wicks into a level on its FIRST touch (or within armBars of it) and
-// closes back out of it in the trade's direction. SL beyond the level's far edge. TPs in multiples of risk.
-// Backtest: exits start the candle after entry; if one candle hits SL and a TP, the SL counts (worst case).
-// Position split in equal thirds across TP1/TP2/TP3. Results in R, after spread + slippage.
+// closes back out of it in the trade's direction. Fixed take profit in pips; stop loss = take profit ÷ RR.
+// Backtest: exits start the candle after entry; if one candle hits both SL and TP, the SL counts (worst case).
 
 type Trade
-    bool   bull
-    int    entryBar
-    float  entry
-    float  sl
-    float  risk
-    float  tp1
-    float  tp2
-    float  tp3
-    float  stop
-    int    hits = 0
-    float  r = 0.0
-    bool   open = true
-    array<line>  lns
+    bool  bull
+    int   entryBar
+    float entry
+    float sl
+    float tp
+    float pips = 0.0
+    bool  open = true
+    box   win
+    box   loss
     array<label> lbs
 
 fmt(float p) =>
     str.tostring(p, format.mintick)
 
-tradeLine(Trade t, float y, color c, string st) =>
-    t.lns.push(line.new(t.entryBar, y, bar_index + 1, y, xloc = xloc.bar_index, color = c, width = 1, style = st))
+pipsText(float p) =>
+    (p >= 0 ? "+" : "") + str.tostring(p, "#.#") + " pips"
 
 tradeLabel(Trade t, float y, string txt, color c) =>
     t.lbs.push(label.new(bar_index + 1, y, txt, xloc = xloc.bar_index, style = label.style_label_left, color = color(na), textcolor = c, size = size.tiny))
 
 closeTrade(Trade t, float px, string why) =>
-    sign = t.bull ? 1 : -1
-    t.r += (1.0 - t.hits / 3.0) * sign * (px - t.entry) / t.risk - costPx / t.risk
+    t.pips := (t.bull ? 1 : -1) * (px - t.entry) / pipSize - costPips
     t.open := false
-    for l in t.lns
-        l.set_x2(bar_index)
+    t.win.set_right(bar_index)
+    t.loss.set_right(bar_index)
     for lb in t.lbs
         lb.set_x(bar_index)
-    if t.lbs.size() > 0
-        t.lbs.get(0).set_text((t.bull ? "LONG " : "SHORT ") + fmt(t.entry) + " · " + why + " " + (t.r >= 0 ? "+" : "") + str.tostring(t.r, "#.##") + "R")
-    t.r
+    t.lbs.get(0).set_text((t.bull ? "LONG " : "SHORT ") + fmt(t.entry) + " · " + why + " " + pipsText(t.pips))
+    t.pips
 
-atrC = ta.atr(ATR_LEN)
+tpDist = tpPips * pipSize
+slDist = tpDist / rr
 htfTrend = not htfUsable or na(htfPacked) ? 0 : str.startswith(htfPacked, "T|1;") ? 1 : str.startswith(htfPacked, "T|-1;") ? -1 : 0
 killzone = not na(time(timeframe.period, londonSess, sesTz)) or not na(time(timeframe.period, nyAmSess, sesTz)) or not na(time(timeframe.period, nyPmSess, sesTz))
 
 var Trade T = na
 var array<Trade> trades = array.new<Trade>()
 var int   stN = 0
-var int   stTp1 = 0
-var int   stTp2 = 0
-var int   stTp3 = 0
-var int   stSl = 0
-var float stR = 0.0
-var float stWin = 0.0
+var int   stWins = 0
+var int   stLosses = 0
+var float stPips = 0.0
+var float stGain = 0.0
 var float stLoss = 0.0
 var int   stFrom = na
 bool goLong = false
 bool goShort = false
 string exitWhy = ""
 
-// Manage the open trade: stop first (worst case), then TPs in order, then the time limit.
+// Manage the open trade: stop first (worst case), then take profit, then the time limit.
 if showTrades and barstate.isconfirmed and not na(T) and T.open and bar_index > T.entryBar
     sign = T.bull ? 1 : -1
-    adverse = T.bull ? low : high
-    favour = T.bull ? high : low
-    if sign * (adverse - T.stop) <= 0
-        exitWhy := T.hits == 0 ? "SL" : "TP" + str.tostring(T.hits)
-        closeTrade(T, T.stop, exitWhy)
-    else
-        if T.hits < 1 and sign * (favour - T.tp1) >= 0
-            T.hits := 1
-            T.r += tp1R / 3
-            if beAfterTp1
-                T.stop := T.entry
-        if T.hits < 2 and sign * (favour - T.tp2) >= 0
-            T.hits := 2
-            T.r += tp2R / 3
-        if T.hits < 3 and sign * (favour - T.tp3) >= 0
-            T.hits := 3
-            T.r += tp3R / 3
-            exitWhy := "TP3"
-            closeTrade(T, T.tp3, exitWhy)
-        else if bar_index - T.entryBar >= maxHold
-            exitWhy := T.hits == 0 ? "Time" : "TP" + str.tostring(T.hits)
-            closeTrade(T, close, exitWhy)
+    if sign * ((T.bull ? low : high) - T.sl) <= 0
+        exitWhy := "SL"
+        closeTrade(T, T.sl, exitWhy)
+    else if sign * ((T.bull ? high : low) - T.tp) >= 0
+        exitWhy := "TP"
+        closeTrade(T, T.tp, exitWhy)
+    else if bar_index - T.entryBar >= maxHold
+        exitWhy := "Time"
+        closeTrade(T, close, exitWhy)
     if not T.open
         stN += 1
-        stTp1 += T.hits >= 1 ? 1 : 0
-        stTp2 += T.hits >= 2 ? 1 : 0
-        stTp3 += T.hits >= 3 ? 1 : 0
-        stSl += exitWhy == "SL" ? 1 : 0
-        stR += T.r
-        stWin += T.r > 0 ? T.r : 0
-        stLoss += T.r < 0 ? -T.r : 0
-        alert("Velox V1 " + syminfo.ticker + " " + (T.bull ? "LONG" : "SHORT") + " closed: " + exitWhy + " " + str.tostring(T.r, "#.##") + "R", alert.freq_once_per_bar_close)
+        stWins += exitWhy == "TP" ? 1 : 0
+        stLosses += exitWhy == "SL" ? 1 : 0
+        stPips += T.pips
+        stGain += T.pips > 0 ? T.pips : 0
+        stLoss += T.pips < 0 ? -T.pips : 0
+        alert("Velox V1 " + syminfo.ticker + " " + (T.bull ? "LONG" : "SHORT") + " closed: " + exitWhy + " " + pipsText(T.pips), alert.freq_once_per_bar_close)
 
 // New entry: only when flat, and never on the candle a trade closed.
-if showTrades and barstate.isconfirmed and exitWhy == "" and (na(T) or not T.open) and not na(atrC) and atrC > 0 and (not killOnly or chartSec > 3600 or killzone)
+if showTrades and barstate.isconfirmed and exitWhy == "" and (na(T) or not T.open) and (not killOnly or chartSec > 3600 or killzone)
     Lvl best = na
-    float bestSl = na
     for k = 0 to 1
         items = k == 0 ? S.zones : S.obs
         if (k == 0 ? tradeFrom != "Order blocks" : tradeFrom != "Zones") and items.size() > 0
@@ -703,48 +676,36 @@ if showTrades and barstate.isconfirmed and exitWhy == "" and (na(T) or not T.ope
                 armed = z.status != "invalid" and not z.traded and z.touches == 1 and not na(z.touchBar) and bar_index - z.touchBar <= armBars and z.strength >= minStr
                 rejected = sign * (close - near) > 0 and sign * (close - open) > 0
                 aligned = (not needTrend or S.trend == sign) and (not needHtf or not htfUsable or htfTrend == sign)
-                if armed and rejected and aligned
-                    float sl = far - sign * slBufATR * atrC
-                    if sign * (close - sl) < minRiskATR * atrC
-                        sl := close - sign * minRiskATR * atrC
-                    if sign * (close - sl) <= maxRiskATR * atrC and (na(best) or z.strength > best.strength)
-                        best := z
-                        bestSl := sl
+                fits = not fitStop or sign * (far - (close - sign * slDist)) > 0
+                if armed and rejected and aligned and fits and (na(best) or z.strength > best.strength)
+                    best := z
     if not na(best)
         best.traded := true
         sign = best.bull ? 1 : -1
-        sl = math.round_to_mintick(bestSl)
-        risk = sign * (close - sl)
-        T := Trade.new(best.bull, bar_index, close, sl, risk, math.round_to_mintick(close + sign * tp1R * risk), math.round_to_mintick(close + sign * tp2R * risk), math.round_to_mintick(close + sign * tp3R * risk), sl)
-        T.lns := array.new<line>()
+        T := Trade.new(best.bull, bar_index, close, math.round_to_mintick(close - sign * slDist), math.round_to_mintick(close + sign * tpDist))
+        T.win := box.new(bar_index, math.max(T.entry, T.tp), bar_index + 1, math.min(T.entry, T.tp), xloc = xloc.bar_index, border_color = color.new(tpCol, 50), bgcolor = color.new(tpCol, 85))
+        T.loss := box.new(bar_index, math.max(T.entry, T.sl), bar_index + 1, math.min(T.entry, T.sl), xloc = xloc.bar_index, border_color = color.new(slCol, 50), bgcolor = color.new(slCol, 85))
         T.lbs := array.new<label>()
-        tradeLine(T, T.entry, entryCol, line.style_solid)
-        tradeLine(T, T.sl, slCol, line.style_solid)
-        tradeLine(T, T.tp1, color.new(tpCol, 40), line.style_dashed)
-        tradeLine(T, T.tp2, color.new(tpCol, 20), line.style_dashed)
-        tradeLine(T, T.tp3, tpCol, line.style_solid)
         tradeLabel(T, T.entry, (T.bull ? "LONG " : "SHORT ") + fmt(T.entry), entryCol)
-        tradeLabel(T, T.sl, "SL " + fmt(T.sl), slCol)
-        tradeLabel(T, T.tp1, "TP1 " + fmt(T.tp1), tpCol)
-        tradeLabel(T, T.tp2, "TP2 " + fmt(T.tp2), tpCol)
-        tradeLabel(T, T.tp3, "TP3 " + fmt(T.tp3), tpCol)
+        tradeLabel(T, T.tp, "TP " + fmt(T.tp) + " · " + pipsText(tpPips), tpCol)
+        tradeLabel(T, T.sl, "SL " + fmt(T.sl) + " · " + pipsText(-tpPips / rr), slCol)
         trades.push(T)
         if trades.size() > keepTrades
             old = trades.shift()
-            for l in old.lns
-                l.delete()
+            old.win.delete()
+            old.loss.delete()
             for lb in old.lbs
                 lb.delete()
         if na(stFrom)
             stFrom := time
         goLong := T.bull
         goShort := not T.bull
-        alert("Velox V1 " + syminfo.ticker + " " + (T.bull ? "LONG" : "SHORT") + " entry " + fmt(T.entry) + " | SL " + fmt(T.sl) + " | TP1 " + fmt(T.tp1) + " | TP2 " + fmt(T.tp2) + " | TP3 " + fmt(T.tp3), alert.freq_once_per_bar_close)
+        alert("Velox V1 " + syminfo.ticker + " " + (T.bull ? "LONG" : "SHORT") + " entry " + fmt(T.entry) + " | TP " + fmt(T.tp) + " | SL " + fmt(T.sl), alert.freq_once_per_bar_close)
 
-// Keep the open trade's lines and labels running to the current candle.
+// Keep the open trade running to the current candle.
 if showTrades and not na(T) and T.open
-    for l in T.lns
-        l.set_x2(bar_index + 1)
+    T.win.set_right(bar_index + 1)
+    T.loss.set_right(bar_index + 1)
     for lb in T.lbs
         lb.set_x(bar_index + 1)
 
@@ -752,23 +713,23 @@ plotshape(goLong, "Long entry", shape.triangleup, location.belowbar, tpCol, size
 plotshape(goShort, "Short entry", shape.triangledown, location.abovebar, slCol, size = size.tiny)
 
 // Backtest table: closed trades on the loaded history only.
-var table stats = table.new(position.top_right, 2, 9, bgcolor = color.new(#0b0f14, 10), frame_color = color.new(#9ca3af, 70), frame_width = 1)
+var table stats = table.new(position.top_right, 2, 8, bgcolor = color.new(#0b0f14, 10), frame_color = color.new(#9ca3af, 70), frame_width = 1)
 statRow(int row, string k, string v, color c) =>
     stats.cell(0, row, k, text_color = color.new(#e5e7eb, 20), text_size = size.tiny, text_halign = text.align_left)
     stats.cell(1, row, v, text_color = c, text_size = size.tiny, text_halign = text.align_right)
-pct(int n) =>
-    stN > 0 ? str.tostring(100.0 * n / stN, "#") + "%" : "–"
 if barstate.islast and showTrades and showStats
     neutral = #e5e7eb
+    slPips = tpPips / rr
+    winRate = stN > 0 ? 100.0 * stWins / stN : na
+    needed = 100.0 * (slPips + costPips) / (tpPips + slPips)
     statRow(0, "Velox backtest", na(stFrom) ? "" : "since " + str.format_time(stFrom, "dd MMM yy", sesTz), neutral)
     statRow(1, "Trades", str.tostring(stN), neutral)
-    statRow(2, "TP1 hit", pct(stTp1), tpCol)
-    statRow(3, "TP2 hit", pct(stTp2), tpCol)
-    statRow(4, "TP3 hit", pct(stTp3), tpCol)
-    statRow(5, "Stopped before TP1", pct(stSl), slCol)
-    statRow(6, "Net R", (stR >= 0 ? "+" : "") + str.tostring(stR, "#.#"), stR >= 0 ? tpCol : slCol)
-    statRow(7, "Avg R / trade", stN > 0 ? str.tostring(stR / stN, "#.##") : "–", stR >= 0 ? tpCol : slCol)
-    statRow(8, "Profit factor", stLoss > 0 ? str.tostring(stWin / stLoss, "#.##") : "–", neutral)
+    statRow(2, "Win rate (TP hit)", na(winRate) ? "–" : str.tostring(winRate, "#") + "%", na(winRate) ? neutral : winRate >= needed ? tpCol : slCol)
+    statRow(3, "Needed to break even", str.tostring(needed, "#.#") + "%", neutral)
+    statRow(4, "Wins / losses / timed out", str.tostring(stWins) + " / " + str.tostring(stLosses) + " / " + str.tostring(stN - stWins - stLosses), neutral)
+    statRow(5, "Net pips", pipsText(stPips), stPips >= 0 ? tpCol : slCol)
+    statRow(6, "Net R", (stPips >= 0 ? "+" : "") + str.tostring(stPips / slPips, "#.#") + "R", stPips >= 0 ? tpCol : slCol)
+    statRow(7, "Profit factor", stLoss > 0 ? str.tostring(stGain / stLoss, "#.##") : "–", neutral)
 
 // ═════════════════════════════ Drawing (redrawn on the last candle from the engine's state) ═════════════════════════════
 
