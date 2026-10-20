@@ -141,7 +141,7 @@ fvgBull   = input.color(#22c55e, "Bullish FVG", group = grpC)
 fvgBear   = input.color(#f43f5e, "Bearish FVG", group = grpC)
 extendR   = input.int(10, "Extend blocks right (candles)", minval = 0, maxval = 300, group = grpC)
 entryCol  = input.color(#9ca3af, "Entry", group = grpC)
-slCol     = input.color(#ef4444, "Stop loss", group = grpC)
+slCol     = input.color(#2962ff, "Stop loss", group = grpC)
 tpCol     = input.color(#22c55e, "Target", group = grpC)
 
 ATR_LEN = 14
@@ -687,12 +687,15 @@ htfZoneNear(bool bull, float top, float bot, float gap) =>
                     hit := true
     hit
 
+// Trade on the chart: green box = target, blue box = stop, with ENTRY / TP / SL price labels.
 tradeDrawing(int eb, float e0, float st, bool lg) =>
     tgt = e0 + (lg ? 1 : -1) * targetRR * math.abs(e0 - st)
-    wBox = box.new(eb, math.max(e0, tgt), bar_index + 1, math.min(e0, tgt), xloc = xloc.bar_index, border_color = color.new(tpCol, 50), bgcolor = color.new(tpCol, 85))
-    lBox = box.new(eb, math.max(e0, st), bar_index + 1, math.min(e0, st), xloc = xloc.bar_index, border_color = color.new(slCol, 50), bgcolor = color.new(slCol, 85))
-    lbl = label.new(bar_index + 1, e0, (lg ? "LONG " : "SHORT ") + fmt(e0), xloc = xloc.bar_index, style = label.style_label_left, color = color(na), textcolor = entryCol, size = size.tiny)
-    [wBox, lBox, lbl]
+    wBox = box.new(eb, math.max(e0, tgt), bar_index + 1, math.min(e0, tgt), xloc = xloc.bar_index, border_color = color.new(tpCol, 30), bgcolor = color.new(tpCol, 78))
+    lBox = box.new(eb, math.max(e0, st), bar_index + 1, math.min(e0, st), xloc = xloc.bar_index, border_color = color.new(slCol, 30), bgcolor = color.new(slCol, 78))
+    eLbl = label.new(bar_index + 1, e0, (lg ? "BUY ENTRY " : "SELL ENTRY ") + fmt(e0), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(entryCol, 10), textcolor = color.white, size = size.small)
+    tLbl = label.new(bar_index + 1, tgt, "TP " + fmt(tgt) + "  (" + str.tostring(targetRR) + "R)", xloc = xloc.bar_index, style = label.style_label_left, color = color.new(tpCol, 10), textcolor = color.white, size = size.small)
+    sLbl = label.new(bar_index + 1, st, "SL " + fmt(st), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(slCol, 10), textcolor = color.white, size = size.small)
+    [wBox, lBox, eLbl, tLbl, sLbl]
 
 // Setup records, one per entry order (index = signal number, carried in the order comment "Long #12").
 var array<bool>  mLong   = array.new<bool>()
@@ -711,18 +714,52 @@ var array<float> rMfe = array.new<float>()
 var array<float> rMae = array.new<float>()
 
 var float curStop = na
-var int   curSig = -1
 var float runFav = 0.0
 var float runAdv = 0.0
 var int   lastClosed = 0
 var box   curWin = na
 var box   curLoss = na
 var label curLbl = na
+var label curTpLbl = na
+var label curSlLbl = na
 var array<box>   oldBoxes = array.new<box>()
 var array<label> oldLabels = array.new<label>()
 bool goLong = false
 bool goShort = false
 bool closedNow = false
+
+// Move the current trade's drawing to the real entry / stop / target, and its right edge to x.
+updDrawing(float e0, float st, bool lg, int x) =>
+    tgt = e0 + (lg ? 1 : -1) * targetRR * math.abs(e0 - st)
+    if not na(curWin)
+        curWin.set_top(math.max(e0, tgt))
+        curWin.set_bottom(math.min(e0, tgt))
+        curWin.set_right(x)
+        curLoss.set_top(math.max(e0, st))
+        curLoss.set_bottom(math.min(e0, st))
+        curLoss.set_right(x)
+        curLbl.set_xy(x, e0)
+        curTpLbl.set_xy(x, tgt)
+        curTpLbl.set_text("TP " + fmt(tgt) + "  (" + str.tostring(targetRR) + "R)")
+        curSlLbl.set_xy(x, st)
+        curSlLbl.set_text("SL " + fmt(st))
+    tgt
+
+// Keep the finished drawing and delete the oldest beyond `keepTrades`.
+archiveDrawing() =>
+    if not na(curWin)
+        oldBoxes.push(curWin)
+        oldBoxes.push(curLoss)
+        oldLabels.push(curLbl)
+        oldLabels.push(curTpLbl)
+        oldLabels.push(curSlLbl)
+    while oldBoxes.size() > 2 * keepTrades
+        box.delete(oldBoxes.shift())
+        box.delete(oldBoxes.shift())
+        label.delete(oldLabels.shift())
+        label.delete(oldLabels.shift())
+        label.delete(oldLabels.shift())
+    oldBoxes.size()
 
 // 1. Record trades the broker emulator closed (TP, SL, time, weekend, end of test).
 if strategy.closedtrades > lastClosed
@@ -747,25 +784,21 @@ if strategy.closedtrades > lastClosed
         rMae.push(mae)
         if showTrades and not na(stopPx)
             if na(curWin)
-                [w0, l0, b0] = tradeDrawing(strategy.closedtrades.entry_bar_index(i), entryPx, stopPx, isLong)
+                [w0, l0, b0, t0, s0] = tradeDrawing(strategy.closedtrades.entry_bar_index(i), entryPx, stopPx, isLong)
                 curWin := w0
                 curLoss := l0
                 curLbl := b0
-            curWin.set_right(bar_index)
-            curLoss.set_right(bar_index)
-            curLbl.set_x(bar_index)
+                curTpLbl := t0
+                curSlLbl := s0
+            updDrawing(entryPx, stopPx, isLong, bar_index)
             why = strategy.closedtrades.exit_comment(i)
-            curLbl.set_text((isLong ? "LONG " : "SHORT ") + fmt(entryPx) + " · " + (na(why) ? "exit" : why) + " " + (na(r) ? "" : (r >= 0 ? "+" : "") + str.tostring(r, "#.##") + "R"))
-            oldBoxes.push(curWin)
-            oldBoxes.push(curLoss)
-            oldLabels.push(curLbl)
-            while oldLabels.size() > keepTrades
-                label.delete(oldLabels.shift())
-                box.delete(oldBoxes.shift())
-                box.delete(oldBoxes.shift())
+            curLbl.set_text((isLong ? "BUY " : "SELL ") + fmt(entryPx) + " · " + (na(why) ? "exit" : why) + " " + (na(r) ? "" : (r >= 0 ? "+" : "") + str.tostring(r, "#.##") + "R"))
+            archiveDrawing()
         curWin := na
         curLoss := na
         curLbl := na
+        curTpLbl := na
+        curSlLbl := na
         runFav := 0.0
         runAdv := 0.0
     lastClosed := strategy.closedtrades
@@ -789,14 +822,15 @@ if strategy.position_size != 0 and not na(curStop)
         strategy.close_all(comment = "End of test")
     if showTrades
         if na(curWin) and strategy.opentrades > 0
-            [w1, l1, b1] = tradeDrawing(strategy.opentrades.entry_bar_index(0), e0, curStop, lg)
+            [w1, l1, b1, t1, s1] = tradeDrawing(strategy.opentrades.entry_bar_index(0), e0, curStop, lg)
             curWin := w1
             curLoss := l1
             curLbl := b1
+            curTpLbl := t1
+            curSlLbl := s1
         if not na(curWin)
-            curWin.set_right(bar_index + 1)
-            curLoss.set_right(bar_index + 1)
-            curLbl.set_x(bar_index + 1)
+            updDrawing(e0, curStop, lg, bar_index + 1)
+            curLbl.set_text((lg ? "BUY ENTRY " : "SELL ENTRY ") + fmt(e0) + "  (filled)")
 
 // 3. New entry: decided on the close, market order fills at the next candle's open.
 if barstate.isconfirmed and inRange and not weekendCut and not closedNow and strategy.position_size == 0 and strategy.opentrades == 0 and sessionOk and not na(atrC) and atrC > 0
@@ -833,11 +867,12 @@ if barstate.isconfirmed and inRange and not weekendCut and not closedNow and str
         sign = best.bull ? 1 : -1
         stopPx = math.round_to_mintick(bestSl)
         riskPx = math.abs(close - stopPx)
+        tpPx = math.round_to_mintick(close + sign * targetRR * riskPx)
         qty = math.max(1, math.round(riskCash / (riskPx * syminfo.pointvalue)))
         id = best.bull ? "Long" : "Short"
         sig = mLong.size()
         strategy.entry(id, best.bull ? strategy.long : strategy.short, qty = qty, comment = id + " #" + str.tostring(sig))
-        strategy.exit("Exit", id, stop = stopPx, limit = math.round_to_mintick(close + sign * targetRR * riskPx), comment_profit = "TP", comment_loss = "SL")
+        strategy.exit("Exit", id, stop = stopPx, limit = tpPx, comment_profit = "TP", comment_loss = "SL")
         curStop := stopPx
         mLong.push(best.bull)
         mSrc.push(best.isOb ? 1 : 0)
@@ -850,10 +885,24 @@ if barstate.isconfirmed and inRange and not weekendCut and not closedNow and str
         mStop.push(stopPx)
         goLong := best.bull
         goShort := not best.bull
-        alert("Velox V2 Lab " + syminfo.ticker + " " + id + " signal at " + fmt(close) + " | SL " + fmt(stopPx) + " | target " + str.tostring(targetRR) + "R " + fmt(close + sign * targetRR * riskPx) + " | market order on the next candle", alert.freq_once_per_bar_close)
+        // Show the trade the moment the signal candle closes, so it can be taken by hand.
+        if showTrades
+            if not na(curWin)
+                box.delete(curWin)
+                box.delete(curLoss)
+                label.delete(curLbl)
+                label.delete(curTpLbl)
+                label.delete(curSlLbl)
+            [w2, l2, b2, t2, s2] = tradeDrawing(bar_index, close, stopPx, best.bull)
+            curWin := w2
+            curLoss := l2
+            curLbl := b2
+            curTpLbl := t2
+            curSlLbl := s2
+        alert("Velox V2 Lab " + syminfo.ticker + " " + (best.bull ? "BUY" : "SELL") + " | entry ~" + fmt(close) + " | SL " + fmt(stopPx) + " | TP " + fmt(tpPx) + " (" + str.tostring(targetRR) + "R) | market order on the next candle", alert.freq_once_per_bar_close)
 
-plotshape(goLong, "Long signal", shape.triangleup, location.belowbar, tpCol, size = size.tiny)
-plotshape(goShort, "Short signal", shape.triangledown, location.abovebar, slCol, size = size.tiny)
+plotshape(goLong, "Buy signal", shape.triangleup, location.belowbar, tpCol, text = "BUY", textcolor = tpCol, size = size.small)
+plotshape(goShort, "Sell signal", shape.triangledown, location.abovebar, slCol, text = "SELL", textcolor = slCol, size = size.small)
 
 // ═════════════════════════════ Research table (closed trades, in R after costs) ═════════════════════════════
 
@@ -873,7 +922,7 @@ acc(array<float> gN, array<float> gW, array<float> gS, array<float> gP, array<fl
 pctText(int a, int b) =>
     b > 0 ? str.tostring(100.0 * a / b, "#") + "%" : "–"
 
-if barstate.islast and showLab
+if (barstate.islast or barstate.islastconfirmedhistory) and showLab
     G = 20
     names = array.from("All trades", "Long", "Short", "Zones", "Order blocks", "  OB on a zone", "London", "New York AM", "New York PM", "Outside sessions", "Strength < 60", "Strength 60–69", "Strength 70–79", "Strength 80+", "With FVG", "Without FVG", "Near HTF zone", "Not near HTF zone", "Age ≤ 50 candles", "Age > 50 candles")
     gN = array.new<float>(G, 0.0)
@@ -1039,7 +1088,8 @@ barAtTime(int t) =>
             res := barBase + lo
     res
 
-if barstate.islast
+// A strategy does not run on the still-forming candle, so also draw on the last closed one.
+if barstate.islast or barstate.islastconfirmedhistory
     for b in drawn
         b.delete()
     drawn.clear()
