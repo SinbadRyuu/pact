@@ -1,116 +1,135 @@
-// Velox V2 — the Velox V1 indicator as a STRATEGY, for TradingView's Strategy Tester. Same zones, order
-// blocks, breakers, FVGs, structure, sessions and higher-timeframe zones; the same entries; real orders.
+// Velox V2 — Strategy Lab. PACT Finance. RESEARCH CODE: it makes no claim of profitability and is not financial advice.
 //
-// Velox V1 — supply & demand zones, order blocks, breaker blocks, fair value gaps, market structure,
-// trading sessions and higher-timeframe zones that follow the chart's timeframe. PACT Finance.
+// Velox V1's supply & demand engine (zones, order blocks, breakers, FVGs, BOS/CHoCH, higher-timeframe zones), run as a
+// STRATEGY so TradingView's broker emulator fills the orders. One entry, one structural stop, one target in R.
 //
-// DEMAND ZONE = the place price turned from: the wick of the low that broke the high (the lowest low
-//   between a swing high and the candle that closed above it). Supply is the mirror.
-// ORDER BLOCK = the candle the move started from: the last down-close candle (bullish) / up-close
-//   candle (bearish) at or before that low/high, kept only if the move from it was strong enough.
-// Both are confirmed only when the breaking candle CLOSES; nothing is created by a candle still forming.
-// Same rules as the Velox engine (packages/velox). Describes past price; not financial advice.
+// Execution model (deliberate):
+//  - The setup is decided when a candle CLOSES. The market order fills at the NEXT candle's open
+//    (process_orders_on_close = false), so nothing is filled inside the candle that created the signal.
+//  - Stop = the level's far edge + an ATR buffer. If that stop is too small or too big, the trade is SKIPPED, never widened.
+//  - The target is re-anchored to the actual fill price, so every trade really is targetRR × its own risk.
+//  - Size = risk cash ÷ stop distance, so every trade risks about the same (default $100 = 1R). Net profit ÷ 100 ≈ net R.
+//  - Bar Magnifier is requested: on plans that have it, a candle that touches both stop and target is resolved on lower
+//    timeframe data. Without it TradingView assumes a price path inside the candle; that is an approximation.
+//  - Costs: commission 0.15 per ounce per side (≈ 3 pips round trip) as a placeholder. Set YOUR broker's in Properties.
+//  - Flat before the weekend (Friday 15:00 New York) by default, so no fill is assumed across the weekend gap.
+//
+// Research table: every closed trade is stored with its setup (side, zone/OB, session, strength, FVG, HTF zone, age)
+// and its result in R measured from the real fill and real profit after costs, plus MFE / MAE in R.
+// MFE / MAE are approximate on the exit candle (the order of prices inside one candle is unknown).
 
 //@version=6
-// Orders fill at the close of the signal candle (process_orders_on_close), like the indicator's entries.
-// Default size 10 oz (0.1 lot); commission 0.15 per oz per side = 3 pips round trip, standing in for spread.
-// Margin 5% = 1:20, the UK retail limit for gold. Change any of these in the strategy's Properties tab.
-strategy("Velox V2", "Velox V2", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500, initial_capital = 10000, currency = currency.USD, default_qty_type = strategy.fixed, default_qty_value = 10, commission_type = strategy.commission.cash_per_contract, commission_value = 0.15, slippage = 0, pyramiding = 0, process_orders_on_close = true, margin_long = 5, margin_short = 5)
+strategy("Velox V2 — Strategy Lab", "Velox V2 Lab", overlay = true, pyramiding = 0, calc_on_every_tick = false, calc_on_order_fills = false, process_orders_on_close = false, use_bar_magnifier = true, initial_capital = 10000, currency = currency.USD, default_qty_type = strategy.fixed, default_qty_value = 1, commission_type = strategy.commission.cash_per_contract, commission_value = 0.15, slippage = 0, margin_long = 5, margin_short = 5, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
 
-// Heikin Ashi, Renko and other synthetic candles give fake fills, so only standard candles are allowed.
+// Heikin Ashi, Renko and other synthetic candles produce fills that never existed.
 if barstate.isfirst and not chart.is_standard
-    runtime.error("Velox V2 must be tested on standard candles (not Heikin Ashi, Renko, etc.)")
+    runtime.error("Velox V2 Strategy Lab must run on standard candles (not Heikin Ashi, Renko, Range, etc.).")
 
 // ═════════════════════════════ Inputs ═════════════════════════════
 
-grpSes = "Sessions (UK time)"
+grpLab = "Strategy Lab"
+testStart   = input.time(timestamp("01 Jan 2023 00:00 +0000"), "Test from", group = grpLab)
+testEnd     = input.time(timestamp("31 Dec 2030 23:59 +0000"), "Test to", group = grpLab, tooltip = "Develop on one period, validate on the next, keep a final period untouched.")
+targetRR    = input.float(2.0, "Single target (R)", minval = 0.5, maxval = 5.0, step = 0.5, group = grpLab, tooltip = "Research 1, 1.5, 2, 2.5 and 3. Look for a stable area, not one magic value.")
+riskCash    = input.float(100, "Risk per trade (account currency)", minval = 1, step = 10, group = grpLab, tooltip = "Size = this ÷ stop distance, rounded to whole ounces. With 100, net profit ÷ 100 ≈ net R.")
+maxHold     = input.int(48, "Close after (candles, 0 = off)", minval = 0, maxval = 2000, group = grpLab)
+flatWeekend = input.bool(true, "Flat before the weekend (Fri 15:00 New York)", group = grpLab)
+showTrades  = input.bool(true, "Draw trades (entry, SL, target)", group = grpLab)
+keepTrades  = input.int(10, "Trades drawn", minval = 1, maxval = 50, group = grpLab)
+showLab     = input.bool(true, "Show research table", group = grpLab)
+labPos      = input.string("Top right", "Table position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = grpLab)
+
+grpSes = "Sessions"
 showSessions = input.bool(true, "Show session boxes", group = grpSes)
-sesTz        = input.string("Europe/London", "Time zone", group = grpSes, tooltip = "Europe/London follows UK clock changes (GMT/BST).")
 sesDays      = input.int(5, "Days to show", minval = 1, maxval = 30, group = grpSes)
-showAsia     = input.bool(true, "Asia", inline = "asia", group = grpSes)
+ukTz         = input.string("Europe/London", "UK time zone (Asia, London)", group = grpSes)
+nyTz         = input.string("America/New_York", "New York time zone (NY AM, NY PM)", group = grpSes, tooltip = "New York sessions use New York's own clock, so the US and UK daylight-saving dates never shift them.")
+showAsia     = input.bool(true, "Asia (UK time)", inline = "asia", group = grpSes)
 asiaSess     = input.session("0100-0450", "", inline = "asia", group = grpSes)
 asiaCol      = input.color(#ef4444, "", inline = "asia", group = grpSes)
-showLondon   = input.bool(true, "London", inline = "lon", group = grpSes)
+showLondon   = input.bool(true, "London (UK time)", inline = "lon", group = grpSes)
 londonSess   = input.session("0700-0955", "", inline = "lon", group = grpSes)
 londonCol    = input.color(#06b6d4, "", inline = "lon", group = grpSes)
-showNyAm     = input.bool(true, "New York AM", inline = "nyam", group = grpSes)
-nyAmSess     = input.session("1330-1555", "", inline = "nyam", group = grpSes)
+showNyAm     = input.bool(true, "NY AM (NY time)", inline = "nyam", group = grpSes)
+nyAmSess     = input.session("0830-1055", "", inline = "nyam", group = grpSes)
 nyAmCol      = input.color(#f97316, "", inline = "nyam", group = grpSes)
-showNyPm     = input.bool(true, "New York PM", inline = "nypm", group = grpSes)
-nyPmSess     = input.session("1830-2055", "", inline = "nypm", group = grpSes)
+showNyPm     = input.bool(true, "NY PM (NY time)", inline = "nypm", group = grpSes)
+nyPmSess     = input.session("1330-1555", "", inline = "nypm", group = grpSes)
 nyPmCol      = input.color(#3b82f6, "", inline = "nypm", group = grpSes)
 
 grpStr = "Market structure"
 swingLen   = input.int(10, "Swing length", minval = 1, maxval = 50, group = grpStr, tooltip = "Candles each side of a swing. A swing is confirmed this many candles after it happens.")
-obSwingLen = input.int(5, "Order block swing length", minval = 1, maxval = 50, group = grpStr, tooltip = "Order blocks come from breaks of this shorter, more local structure, so they stay small and close to price on every timeframe. Zones use the swing length above.")
+obSwingLen = input.int(5, "Order block swing length", minval = 1, maxval = 50, group = grpStr)
+bosBufATR  = input.float(0.10, "BOS close buffer (× ATR)", minval = 0, step = 0.05, group = grpStr, tooltip = "A close must clear the swing by this much. Applies to BOS/CHoCH and to the internal breaks behind order blocks. Research 0, 0.05, 0.10, 0.15, 0.20.")
 showStruct = input.bool(true, "Show BOS / CHoCH", group = grpStr)
 
 grpZone = "Supply & demand zones"
 showZones   = input.bool(true, "Show zones", group = grpZone)
-zoneWidth   = input.string("Wick", "Zone shape", options = ["Wick", "ATR band", "Base"], group = grpZone, tooltip = "Wick: from the low's wick to the bottom of that candle's body (demand). ATR band: a fixed band from the wick. Base: up to the highest body of the low candle and its quiet neighbours.")
+zoneWidth   = input.string("Wick", "Zone shape", options = ["Wick", "ATR band", "Base"], group = grpZone)
 zoneAtrBand = input.float(0.25, "ATR band height (× ATR)", minval = 0.01, step = 0.05, group = grpZone)
 minHATR     = input.float(0.15, "Min zone height (× ATR)", minval = 0, step = 0.05, group = grpZone)
 maxHATR     = input.float(1.0, "Max zone height (× ATR)", minval = 0.05, step = 0.05, group = grpZone)
 baseRange   = input.float(1.0, "Base: neighbour max range (× ATR)", minval = 0.1, step = 0.1, group = grpZone)
 maxBase     = input.int(3, "Base: max candles", minval = 1, maxval = 10, group = grpZone)
-zoneMinDisp = input.float(1.5, "Min move away (× ATR)", minval = 0, step = 0.1, group = grpZone, tooltip = "The breaking candle must close at least this far beyond the zone.")
+zoneMinDisp = input.float(1.5, "Min move away (× ATR)", minval = 0, step = 0.1, group = grpZone)
 speedBars   = input.int(20, "Speed: candles for zero score", minval = 1, maxval = 500, group = grpZone)
 overlapLim  = input.float(0.5, "Skip zones overlapping a live one by", minval = 0, maxval = 1, step = 0.05, group = grpZone)
-maxPerSide  = input.int(2, "Zones shown per side", minval = 1, maxval = 20, group = grpZone, tooltip = "Nearest live demand zones below price and supply zones above it.")
+maxPerSide  = input.int(2, "Zones shown per side", minval = 1, maxval = 20, group = grpZone)
 showMitigated = input.bool(true, "Show mitigated zones (faded)", group = grpZone)
 
 grpOb = "Order blocks & breaker blocks"
 showOb      = input.bool(true, "Show order blocks", group = grpOb)
-obRange     = input.string("Body", "Order block edges", options = ["Wick", "Body", "Hybrid"], group = grpOb, tooltip = "Wick: the candle's full low–high. Body: open–close. Hybrid: low–open (bullish) / open–high (bearish).")
+obRange     = input.string("Body", "Order block edges", options = ["Wick", "Body", "Hybrid"], group = grpOb)
 obLookback  = input.int(5, "Look back from the low for the candle", minval = 0, maxval = 50, group = grpOb)
 obMinDisp   = input.float(1.5, "Min move away (× ATR)", minval = 0, step = 0.1, group = grpOb)
 minImpulse  = input.int(2, "Min strong candles in the move", minval = 0, maxval = 50, group = grpOb)
 impulseBody = input.float(0.5, "Strong candle: body ÷ range at least", minval = 0, maxval = 1, step = 0.05, group = grpOb)
 obMaxBars   = input.int(30, "Break within (candles)", minval = 1, maxval = 499, group = grpOb)
 obNearATR   = input.float(0.5, "On a zone if within (× ATR)", minval = 0, step = 0.1, group = grpOb)
-obMaxH      = input.float(0.75, "Max block height (× ATR)", minval = 0.05, step = 0.05, group = grpOb, tooltip = "A bigger candle is trimmed to this height, keeping the part nearest the low (bullish) or high (bearish).")
+obMaxH      = input.float(0.75, "Max block height (× ATR)", minval = 0.05, step = 0.05, group = grpOb)
 maxObSide   = input.int(1, "Order blocks shown per side", minval = 1, maxval = 20, group = grpOb)
-showBb      = input.bool(true, "Show breaker blocks", group = grpOb)
+showBb      = input.bool(true, "Show breaker blocks", group = grpOb, tooltip = "Visual, and counted as opposing structure for the room check. Not traded: breaker retests should be tested later as their own setup.")
 maxBbSide   = input.int(1, "Breaker blocks shown per side", minval = 1, maxval = 20, group = grpOb)
 bbLife      = input.int(50, "Breaker blocks expire after (candles)", minval = 1, maxval = 2000, group = grpOb)
 
 grpLife = "Zone & block lifecycle"
 touchExit = input.float(0.5, "Leave distance for a new visit (× ATR)", minval = 0, step = 0.1, group = grpLife)
-mitDepth  = input.float(0.5, "Mitigated at depth", minval = 0.05, maxval = 1, step = 0.05, group = grpLife)
-invMode   = input.string("Close", "Invalidated by", options = ["Close", "Wick"], group = grpLife, tooltip = "Close: a candle must close beyond the far edge. Wick: touching beyond it is enough.")
+mitDepth  = input.float(0.5, "Mitigated at depth", minval = 0.05, maxval = 1, step = 0.05, group = grpLife, tooltip = "Measured on every candle, including the first touch: a first touch that wicks this deep is already 'mitigated'.")
+invMode   = input.string("Close", "Invalidated by", options = ["Close", "Wick"], group = grpLife)
 invBuf    = input.float(0.0, "Invalidation buffer (× ATR)", minval = 0, step = 0.05, group = grpLife)
 
 grpFvg = "Fair value gaps"
 showFvg = input.bool(true, "Show FVGs", group = grpFvg)
 fvgMin  = input.float(0.5, "Min gap size (× ATR)", minval = 0, step = 0.05, group = grpFvg)
-fvgBody = input.float(1.0, "Middle candle body at least (× ATR)", minval = 0, step = 0.1, group = grpFvg, tooltip = "Only gaps left by a strong push count: the middle candle must close in the gap's direction with a body at least this big.")
+fvgBody = input.float(1.0, "Middle candle body at least (× ATR)", minval = 0, step = 0.1, group = grpFvg)
 maxFvg  = input.int(3, "Max FVGs shown", minval = 1, maxval = 50, group = grpFvg)
 fvgExt  = input.int(10, "Extend FVGs right (candles)", minval = 0, maxval = 300, group = grpFvg)
 
 grpHtf = "Higher-timeframe zones"
-showHtf    = input.bool(true, "Show higher-timeframe demand and supply", group = grpHtf, tooltip = "From closed higher-timeframe candles only. The chart's own timeframe always has its own zones, order blocks and breakers.")
-htfMode    = input.string("Auto", "Higher timeframe", options = ["Auto", "Manual"], group = grpHtf, tooltip = "Auto follows the chart: 1m → 15m, 5m → 1H, 15m and 1H → 4H, 4H → Daily. Nothing above 4H.")
+showHtf    = input.bool(true, "Show higher-timeframe demand and supply", group = grpHtf)
+htfMode    = input.string("Auto", "Higher timeframe", options = ["Auto", "Manual"], group = grpHtf, tooltip = "Auto: 1m → 15m, 5m → 1H, 15m and 1H → 4H, 4H → Daily.")
 htfManual  = input.timeframe("240", "Manual timeframe", group = grpHtf)
 htfPerSide = input.int(2, "Zones per side", minval = 1, maxval = 3, group = grpHtf)
 
-grpLab = "Strategy Lab"
-testStart = input.time(timestamp("01 Jan 2023 00:00 +0000"), "Test from", group = grpLab, tooltip = "Only enter trades between these dates, e.g. tune on one period and check on another.")
-testEnd   = input.time(timestamp("31 Dec 2030 23:59 +0000"), "Test to", group = grpLab)
-
-grpT = "Trades: entry, SL, TP"
-showTrades = input.bool(true, "Show trades", group = grpT, tooltip = "Entry on the close of a candle that rejects a zone or order block on its first touch. One take profit, one stop loss, one trade at a time.")
-tradeFrom  = input.string("Both", "Enter from", options = ["Zones", "Order blocks", "Both"], group = grpT)
-tpPips     = input.float(100, "Take profit (pips)", minval = 1, step = 10, group = grpT)
-rr         = input.float(1.0, "Reward : risk", minval = 0.1, step = 0.1, group = grpT, tooltip = "1 = the stop loss is the same distance as the take profit (100 pips each).")
-pipSize    = input.float(0.10, "Pip size", minval = 0.00001, step = 0.01, group = grpT, tooltip = "Gold: 1 pip = 0.10, so 100 pips = $10.")
-minStr     = input.int(50, "Min level strength", minval = 0, maxval = 100, group = grpT, tooltip = "Not calibrated yet. Tune it with the backtest table.")
-armBars    = input.int(3, "Rejection within (candles of first touch)", minval = 0, maxval = 20, group = grpT)
-fitStop    = input.bool(true, "Only if the level sits inside the stop", group = grpT, tooltip = "Skip the trade if the level's far edge is beyond the stop loss, so the stop is always behind the level.")
-maxHold    = input.int(48, "Close after (candles)", minval = 1, maxval = 2000, group = grpT, tooltip = "48 candles = 12 hours on 15m.")
-needTrend  = input.bool(true, "Only with chart structure", group = grpT)
-needHtf    = input.bool(true, "Only with higher-timeframe structure", group = grpT)
-killOnly   = input.bool(true, "Enter only in London / New York sessions (1H and below)", group = grpT)
-keepTrades = input.int(10, "Trades drawn", minval = 1, maxval = 50, group = grpT)
+grpQual = "Entry filters (research starting values, not proven settings)"
+tradeFrom      = input.string("Both", "Enter from", options = ["Zones", "Order blocks", "Both"], group = grpQual)
+minStr         = input.int(65, "Min level strength", minval = 0, maxval = 100, group = grpQual, tooltip = "Zones and order blocks are scored on different scales, so check the strength rows in the research table before trusting this.")
+armBars        = input.int(3, "Rejection within (candles of first touch)", minval = 0, maxval = 20, group = grpQual)
+allowMitigated = input.bool(false, "Allow mitigated levels", group = grpQual)
+maxAge         = input.int(200, "Max level age (candles since confirmation)", minval = 10, maxval = 5000, group = grpQual)
+minBodyATR     = input.float(0.20, "Rejection body at least (× ATR)", minval = 0, step = 0.05, group = grpQual)
+minBodyRatio   = input.float(0.55, "Rejection body ÷ range at least", minval = 0, maxval = 1, step = 0.05, group = grpQual)
+minCloseLoc    = input.float(0.70, "Close location (long; short mirrored)", minval = 0.5, maxval = 1, step = 0.05, group = grpQual, tooltip = "0.70: a long closes in the top 30% of the candle, a short in the bottom 30%.")
+slBufATR       = input.float(0.10, "Stop beyond the far edge (× ATR)", minval = 0, step = 0.05, group = grpQual)
+minRiskATR     = input.float(0.5, "Min stop distance (× ATR), else skip", minval = 0.05, step = 0.05, group = grpQual)
+maxRiskATR     = input.float(1.5, "Max stop distance (× ATR), else skip", minval = 0.1, step = 0.1, group = grpQual)
+minRoomR       = input.float(1.75, "Min room to opposing structure (R)", minval = 0, step = 0.25, group = grpQual, tooltip = "Opposing zones, order blocks, active breakers and higher-timeframe zones. Entering inside opposing structure counts as zero room.")
+roomHtf        = input.bool(true, "Room check includes higher-timeframe zones", group = grpQual)
+needTrend      = input.bool(true, "Require chart structure alignment", group = grpQual)
+needHtfTrend   = input.bool(true, "Require higher-timeframe structure alignment", group = grpQual)
+needHtfZone    = input.bool(false, "Require a same-direction HTF zone nearby", group = grpQual, tooltip = "Off by default: it is recorded on every trade so the table can show whether it helps.")
+htfNearATR     = input.float(0.75, "HTF zone nearby within (× ATR)", minval = 0, step = 0.05, group = grpQual)
+killOnly       = input.bool(true, "Enter only in London / NY AM / NY PM (1H and below)", group = grpQual)
 
 grpC = "Colours"
 demandCol = input.color(#26c6da, "Demand", group = grpC)
@@ -123,9 +142,8 @@ fvgBear   = input.color(#f43f5e, "Bearish FVG", group = grpC)
 extendR   = input.int(10, "Extend blocks right (candles)", minval = 0, maxval = 300, group = grpC)
 entryCol  = input.color(#9ca3af, "Entry", group = grpC)
 slCol     = input.color(#ef4444, "Stop loss", group = grpC)
-tpCol     = input.color(#22c55e, "Take profit", group = grpC)
+tpCol     = input.color(#22c55e, "Target", group = grpC)
 
-// Fixed: ATR length and the strength weights (out of 100), as in the engine.
 ATR_LEN = 14
 
 // ═════════════════════════════ Types ═════════════════════════════
@@ -151,6 +169,7 @@ type Lvl
     int    originBar = na // chart bar index of the origin candle (drawing is anchored to bars, not times)
     int    touchBar = na  // candle of the latest touch
     bool   traded = false // a level gives at most one trade
+    bool   fvg = false    // a same-direction FVG formed in the move away from it
 
 type Gap
     bool  bull
@@ -377,6 +396,7 @@ onBreak(State s, bool bull, int tfSec) =>
                 zone = Lvl.new(bull, false, zTop, zBot, oTime, bar_index, a, base, math.round(base + 10))
                 zone.inside := sign * (reach - near) <= 0
                 zone.originBar := o
+                zone.fvg := fvg
                 s.zones.push(zone)
                 s.newZoneBar := bar_index
                 s.newZoneBull := bull
@@ -416,6 +436,12 @@ onObBreak(State s, bool bull, int tfSec) =>
                 nb = Lvl.new(bull, true, obTop, obBot, obTime, bar_index, a, base, math.round(base + 15))
                 nb.onZone := onZone
                 nb.originBar := obIdx
+                bool obFvg = false
+                if s.fvgFirst.size() > 0
+                    for k = 0 to s.fvgFirst.size() - 1
+                        if s.fvgBull.get(k) == bull and s.fvgFirst.get(k) >= obIdx
+                            obFvg := true
+                nb.fvg := obFvg
                 nb.inside := sign * (reach - (bull ? obTop : obBot)) <= 0
                 s.obs.push(nb)
                 s.newObBar := bar_index
@@ -499,9 +525,10 @@ velox(bool conf, int tfSec) =>
             s.slBar := bar_index - swingLen
             s.slBroken := false
 
-        // Breaks of structure (on the close).
-        bool up = not s.shBroken and not na(s.shPrice) and close > s.shPrice
-        bool down = not s.slBroken and not na(s.slPrice) and close < s.slPrice
+        // Breaks of structure: the close must clear the swing by bosBufATR × ATR, not just poke past it.
+        buf = bosBufATR * nz(atrNow)
+        bool up = not s.shBroken and not na(s.shPrice) and close > s.shPrice + buf
+        bool down = not s.slBroken and not na(s.slPrice) and close < s.slPrice - buf
         if up and down
             up := close >= open
             down := not up
@@ -521,8 +548,8 @@ velox(bool conf, int tfSec) =>
             s.islPrice := ipl
             s.islBar := bar_index - obSwingLen
             s.islBroken := false
-        bool iup = not s.ishBroken and not na(s.ishPrice) and close > s.ishPrice
-        bool idown = not s.islBroken and not na(s.islPrice) and close < s.islPrice
+        bool iup = not s.ishBroken and not na(s.ishPrice) and close > s.ishPrice + buf
+        bool idown = not s.islBroken and not na(s.islPrice) and close < s.islPrice - buf
         if iup and idown
             iup := close >= open
             idown := not iup
@@ -571,11 +598,11 @@ htfPacked = request.security(syminfo.tickerid, htf == "" ? "D" : htf, htfPack(ti
 recent = timenow - time <= sesDays * 86400000
 sessionsOn = showSessions and chartSec <= 3600
 
-sessionBox(bool on, string sess, string name, color col) =>
+sessionBox(bool on, string sess, string tz, string name, color col) =>
     var box b = na
     var float hi = na
     var float lo = na
-    inS = on and sessionsOn and recent and not na(time(timeframe.period, sess, sesTz))
+    inS = on and sessionsOn and recent and not na(time(timeframe.period, sess, tz))
     if inS and not inS[1]
         hi := high
         lo := low
@@ -588,10 +615,13 @@ sessionBox(bool on, string sess, string name, color col) =>
         b.set_right(bar_index)
     inS
 
-inAsia   = sessionBox(showAsia, asiaSess, "Asia", asiaCol)
-inLondon = sessionBox(showLondon, londonSess, "London", londonCol)
-inNyAm   = sessionBox(showNyAm, nyAmSess, "New York AM", nyAmCol)
-inNyPm   = sessionBox(showNyPm, nyPmSess, "New York PM", nyPmCol)
+inAsia   = sessionBox(showAsia, asiaSess, ukTz, "Asia", asiaCol)
+inLondon = sessionBox(showLondon, londonSess, ukTz, "London", londonCol)
+inNyAm   = sessionBox(showNyAm, nyAmSess, nyTz, "New York AM", nyAmCol)
+inNyPm   = sessionBox(showNyPm, nyPmSess, nyTz, "New York PM", nyPmCol)
+
+// Session of the current candle for entries and research (independent of whether the boxes are shown).
+sesNow = not na(time(timeframe.period, londonSess, ukTz)) ? 0 : not na(time(timeframe.period, nyAmSess, nyTz)) ? 1 : not na(time(timeframe.period, nyPmSess, nyTz)) ? 2 : 3
 
 // ═════════════════════════════ BOS / CHoCH (drawn when the breaking candle closes) ═════════════════════════════
 
@@ -600,110 +630,348 @@ if showStruct and barstate.isconfirmed and S.evBar == bar_index and not na(S.evF
     line.new(S.evFromBar, S.evLevel, bar_index, S.evLevel, xloc = xloc.bar_index, color = col, style = S.evChoch ? line.style_dashed : line.style_solid)
     label.new(int(math.floor((S.evFromBar + bar_index) / 2)), S.evLevel, S.evChoch ? "CHoCH" : "BOS", xloc = xloc.bar_index, style = S.evBull ? label.style_label_down : label.style_label_up, color = color(na), textcolor = col, size = size.tiny)
 
-// ═════════════════════════════ Trades: entry, SL, TP (orders sent on closed candles only) ═════════════════════════════
-// Entry: the close of a candle that wicks into a level on its FIRST touch (or within armBars of it) and
-// closes back out of it in the trade's direction. Fixed take profit in pips; stop loss = take profit ÷ RR.
-// The Strategy Tester fills the stop and target. Results: Strategy Tester tab (win rate, profit factor, drawdown).
+// ═════════════════════════════ Strategy Lab: entries, exits, research records ═════════════════════════════
 
-type Trade
-    bool  bull
-    int   entryBar
-    float entry
-    float sl
-    float tp
-    float pips = 0.0
-    bool  open = true
-    box   win
-    box   loss
-    array<label> lbs
+atrC = ta.atr(ATR_LEN)
+inRange = time >= testStart and time <= testEnd
+weekendCut = flatWeekend and dayofweek(time, nyTz) == dayofweek.friday and hour(time, nyTz) >= 15
+htfTrend = not htfUsable or na(htfPacked) ? 0 : str.startswith(htfPacked, "T|1;") ? 1 : str.startswith(htfPacked, "T|-1;") ? -1 : 0
+sessionOk = not killOnly or chartSec > 3600 or sesNow < 3
 
 fmt(float p) =>
     str.tostring(p, format.mintick)
 
-pipsText(float p) =>
-    (p >= 0 ? "+" : "") + str.tostring(p, "#.#") + " pips"
+// Distance from the entry to an opposing level: 0 if the entry is inside it, na if the level is behind the entry.
+oppDist(bool bull, float entry, float top, float bot) =>
+    float d = na
+    if not na(top) and not na(bot)
+        if entry >= bot and entry <= top
+            d := 0.0
+        else if bull and bot > entry
+            d := bot - entry
+        else if not bull and top < entry
+            d := entry - top
+    d
 
-tradeLabel(Trade t, float y, string txt, color c) =>
-    t.lbs.push(label.new(bar_index + 1, y, txt, xloc = xloc.bar_index, style = label.style_label_left, color = color(na), textcolor = c, size = size.tiny))
+// Nearest opposing structure: zones, order blocks, active breakers (role flipped) and, optionally, HTF zones.
+roomToOpposing(State s, bool bull, float entry) =>
+    float room = na
+    for k = 0 to 1
+        items = k == 0 ? s.zones : s.obs
+        for z in items
+            isBrk = z.isOb and z.status == "invalid" and not na(z.breakerSince) and na(z.breakerEnded)
+            role = isBrk ? not z.bull : z.bull
+            if (z.status != "invalid" or isBrk) and role != bull
+                d = oppDist(bull, entry, z.top, z.bottom)
+                if not na(d)
+                    room := na(room) ? d : math.min(room, d)
+    if roomHtf and htfUsable and not na(htfPacked)
+        for e in str.split(htfPacked, ";")
+            f = str.split(e, "|")
+            if f.size() == 6 and f.get(0) == (bull ? "S" : "D")
+                d = oppDist(bull, entry, str.tonumber(f.get(1)), str.tonumber(f.get(2)))
+                if not na(d)
+                    room := na(room) ? d : math.min(room, d)
+    room
 
-closeTrade(Trade t, float px, string why) =>
-    t.pips := (t.bull ? 1 : -1) * (px - t.entry) / pipSize
-    t.open := false
-    t.win.set_right(bar_index)
-    t.loss.set_right(bar_index)
-    for lb in t.lbs
-        lb.set_x(bar_index)
-    t.lbs.get(0).set_text((t.bull ? "LONG " : "SHORT ") + fmt(t.entry) + " · " + why + " " + pipsText(t.pips))
-    t.pips
+// Is there a same-direction higher-timeframe zone within `gap` of this level?
+htfZoneNear(bool bull, float top, float bot, float gap) =>
+    bool hit = false
+    if htfUsable and not na(htfPacked)
+        for e in str.split(htfPacked, ";")
+            f = str.split(e, "|")
+            if f.size() == 6 and f.get(0) == (bull ? "D" : "S")
+                hTop = str.tonumber(f.get(1))
+                hBot = str.tonumber(f.get(2))
+                if not na(hTop) and not na(hBot) and isNear(top, bot, hTop, hBot, gap)
+                    hit := true
+    hit
 
-tpDist = tpPips * pipSize
-slDist = tpDist / rr
-htfTrend = not htfUsable or na(htfPacked) ? 0 : str.startswith(htfPacked, "T|1;") ? 1 : str.startswith(htfPacked, "T|-1;") ? -1 : 0
-killzone = not na(time(timeframe.period, londonSess, sesTz)) or not na(time(timeframe.period, nyAmSess, sesTz)) or not na(time(timeframe.period, nyPmSess, sesTz))
-inWindow = time >= testStart and time <= testEnd
+tradeDrawing(int eb, float e0, float st, bool lg) =>
+    tgt = e0 + (lg ? 1 : -1) * targetRR * math.abs(e0 - st)
+    wBox = box.new(eb, math.max(e0, tgt), bar_index + 1, math.min(e0, tgt), xloc = xloc.bar_index, border_color = color.new(tpCol, 50), bgcolor = color.new(tpCol, 85))
+    lBox = box.new(eb, math.max(e0, st), bar_index + 1, math.min(e0, st), xloc = xloc.bar_index, border_color = color.new(slCol, 50), bgcolor = color.new(slCol, 85))
+    lbl = label.new(bar_index + 1, e0, (lg ? "LONG " : "SHORT ") + fmt(e0), xloc = xloc.bar_index, style = label.style_label_left, color = color(na), textcolor = entryCol, size = size.tiny)
+    [wBox, lBox, lbl]
 
-var Trade T = na
-var array<Trade> trades = array.new<Trade>()
-string exitWhy = ""
+// Setup records, one per entry order (index = signal number, carried in the order comment "Long #12").
+var array<bool>  mLong   = array.new<bool>()
+var array<int>   mSrc    = array.new<int>()   // 0 zone, 1 order block
+var array<bool>  mOnZone = array.new<bool>()
+var array<int>   mStr    = array.new<int>()
+var array<int>   mSes    = array.new<int>()   // 0 London, 1 NY AM, 2 NY PM, 3 outside
+var array<bool>  mFvg    = array.new<bool>()
+var array<bool>  mHtfZ   = array.new<bool>()
+var array<int>   mAge    = array.new<int>()
+var array<float> mStop   = array.new<float>()
+// Results, one per closed trade.
+var array<int>   rSig = array.new<int>()
+var array<float> rR   = array.new<float>()
+var array<float> rMfe = array.new<float>()
+var array<float> rMae = array.new<float>()
 
-// The Strategy Tester closed the position (TP or SL filled): finish the drawing at the real exit price.
-if showTrades and not na(T) and T.open and bar_index > T.entryBar and strategy.position_size == 0
-    i = strategy.closedtrades - 1
-    exitWhy := i >= 0 ? strategy.closedtrades.exit_comment(i) : "Closed"
-    closeTrade(T, i >= 0 ? strategy.closedtrades.exit_price(i) : close, exitWhy)
-    alert("Velox V2 " + syminfo.ticker + " " + (T.bull ? "LONG" : "SHORT") + " closed: " + exitWhy + " " + pipsText(T.pips), alert.freq_once_per_bar_close)
+var float curStop = na
+var int   curSig = -1
+var float runFav = 0.0
+var float runAdv = 0.0
+var int   lastClosed = 0
+var box   curWin = na
+var box   curLoss = na
+var label curLbl = na
+var array<box>   oldBoxes = array.new<box>()
+var array<label> oldLabels = array.new<label>()
+bool goLong = false
+bool goShort = false
+bool closedNow = false
 
-// Time limit: close at this candle's close.
-if showTrades and barstate.isconfirmed and not na(T) and T.open and strategy.position_size != 0 and bar_index - T.entryBar >= maxHold
-    strategy.close_all(comment = "Time")
-    exitWhy := "Time"
-    closeTrade(T, close, exitWhy)
-    alert("Velox V2 " + syminfo.ticker + " " + (T.bull ? "LONG" : "SHORT") + " closed: Time " + pipsText(T.pips), alert.freq_once_per_bar_close)
+// 1. Record trades the broker emulator closed (TP, SL, time, weekend, end of test).
+if strategy.closedtrades > lastClosed
+    for i = lastClosed to strategy.closedtrades - 1
+        string cmt = strategy.closedtrades.entry_comment(i)
+        parts = str.split(na(cmt) ? "" : cmt, "#")
+        sig = parts.size() == 2 ? int(str.tonumber(parts.get(1))) : -1
+        entryPx = strategy.closedtrades.entry_price(i)
+        isLong = strategy.closedtrades.size(i) > 0
+        stopPx = sig >= 0 and sig < mStop.size() ? mStop.get(sig) : na
+        riskU = na(stopPx) ? na : math.abs(entryPx - stopPx)
+        float r = na
+        float mfe = na
+        float mae = na
+        if not na(riskU) and riskU > 0
+            r := strategy.closedtrades.profit(i) / (math.abs(strategy.closedtrades.size(i)) * riskU * syminfo.pointvalue)
+            mfe := math.max(runFav, (isLong ? high - entryPx : entryPx - low) / riskU)
+            mae := math.max(runAdv, (isLong ? entryPx - low : high - entryPx) / riskU)
+        rSig.push(sig)
+        rR.push(r)
+        rMfe.push(mfe)
+        rMae.push(mae)
+        if showTrades and not na(stopPx)
+            if na(curWin)
+                [w0, l0, b0] = tradeDrawing(strategy.closedtrades.entry_bar_index(i), entryPx, stopPx, isLong)
+                curWin := w0
+                curLoss := l0
+                curLbl := b0
+            curWin.set_right(bar_index)
+            curLoss.set_right(bar_index)
+            curLbl.set_x(bar_index)
+            why = strategy.closedtrades.exit_comment(i)
+            curLbl.set_text((isLong ? "LONG " : "SHORT ") + fmt(entryPx) + " · " + (na(why) ? "exit" : why) + " " + (na(r) ? "" : (r >= 0 ? "+" : "") + str.tostring(r, "#.##") + "R"))
+            oldBoxes.push(curWin)
+            oldBoxes.push(curLoss)
+            oldLabels.push(curLbl)
+            while oldLabels.size() > keepTrades
+                label.delete(oldLabels.shift())
+                box.delete(oldBoxes.shift())
+                box.delete(oldBoxes.shift())
+        curWin := na
+        curLoss := na
+        curLbl := na
+        runFav := 0.0
+        runAdv := 0.0
+    lastClosed := strategy.closedtrades
+    closedNow := true
 
-// New entry: only when flat, inside the test window, and never on the candle a trade closed.
-if showTrades and barstate.isconfirmed and inWindow and exitWhy == "" and (na(T) or not T.open) and strategy.position_size == 0 and (not killOnly or chartSec > 3600 or killzone)
+// 2. Open trade: excursions, target re-anchored to the real fill, time / weekend / end-of-test exits, drawing.
+if strategy.position_size != 0 and not na(curStop)
+    lg = strategy.position_size > 0
+    e0 = strategy.position_avg_price
+    rk = math.abs(e0 - curStop)
+    if rk > 0
+        runFav := math.max(runFav, (lg ? high - e0 : e0 - low) / rk)
+        runAdv := math.max(runAdv, (lg ? e0 - low : high - e0) / rk)
+        tgt = math.round_to_mintick(e0 + (lg ? 1 : -1) * targetRR * rk)
+        strategy.exit("Exit", lg ? "Long" : "Short", stop = curStop, limit = tgt, comment_profit = "TP", comment_loss = "SL")
+    if maxHold > 0 and strategy.opentrades > 0 and bar_index - strategy.opentrades.entry_bar_index(0) >= maxHold
+        strategy.close_all(comment = "Time")
+    if weekendCut
+        strategy.close_all(comment = "Weekend")
+    if time > testEnd
+        strategy.close_all(comment = "End of test")
+    if showTrades
+        if na(curWin) and strategy.opentrades > 0
+            [w1, l1, b1] = tradeDrawing(strategy.opentrades.entry_bar_index(0), e0, curStop, lg)
+            curWin := w1
+            curLoss := l1
+            curLbl := b1
+        if not na(curWin)
+            curWin.set_right(bar_index + 1)
+            curLoss.set_right(bar_index + 1)
+            curLbl.set_x(bar_index + 1)
+
+// 3. New entry: decided on the close, market order fills at the next candle's open.
+if barstate.isconfirmed and inRange and not weekendCut and not closedNow and strategy.position_size == 0 and strategy.opentrades == 0 and sessionOk and not na(atrC) and atrC > 0
+    rng = math.max(high - low, syminfo.mintick)
+    body = math.abs(close - open)
+    closeLoc = (close - low) / rng
     Lvl best = na
+    float bestSl = na
+    bool bestHtfZ = false
     for k = 0 to 1
         items = k == 0 ? S.zones : S.obs
-        if (k == 0 ? tradeFrom != "Order blocks" : tradeFrom != "Zones") and items.size() > 0
+        if k == 0 ? tradeFrom != "Order blocks" : tradeFrom != "Zones"
             for z in items
                 sign = z.bull ? 1 : -1
                 near = z.bull ? z.top : z.bottom
                 far = z.bull ? z.bottom : z.top
-                armed = z.status != "invalid" and not z.traded and z.touches == 1 and not na(z.touchBar) and bar_index - z.touchBar <= armBars and z.strength >= minStr
-                rejected = sign * (close - near) > 0 and sign * (close - open) > 0
-                aligned = (not needTrend or S.trend == sign) and (not needHtf or not htfUsable or htfTrend == sign)
-                fits = not fitStop or sign * (far - (close - sign * slDist)) > 0
-                if armed and rejected and aligned and fits and (na(best) or z.strength > best.strength)
-                    best := z
+                stateOk = z.status == "tested" or (allowMitigated and z.status == "mitigated")
+                armed = stateOk and not z.traded and z.touches == 1 and not na(z.touchBar) and bar_index - z.touchBar <= armBars and bar_index - z.confirmBar <= maxAge and z.strength >= minStr
+                rejected = sign * (close - near) > 0 and sign * (close - open) > 0 and body >= minBodyATR * atrC and body / rng >= minBodyRatio and (z.bull ? closeLoc >= minCloseLoc : closeLoc <= 1 - minCloseLoc)
+                aligned = (not needTrend or S.trend == sign) and (not needHtfTrend or not htfUsable or htfTrend == sign)
+                if armed and rejected and aligned
+                    sl = far - sign * slBufATR * atrC
+                    risk = sign * (close - sl)
+                    if risk >= minRiskATR * atrC and risk <= maxRiskATR * atrC
+                        htfZ = htfZoneNear(z.bull, z.top, z.bottom, htfNearATR * atrC)
+                        room = roomToOpposing(S, z.bull, close)
+                        roomOk = na(room) or room / risk >= minRoomR
+                        if roomOk and (not needHtfZone or htfZ) and (na(best) or z.strength > best.strength)
+                            best := z
+                            bestSl := sl
+                            bestHtfZ := htfZ
     if not na(best)
         best.traded := true
         sign = best.bull ? 1 : -1
-        T := Trade.new(best.bull, bar_index, close, math.round_to_mintick(close - sign * slDist), math.round_to_mintick(close + sign * tpDist))
-        id = T.bull ? "Long" : "Short"
-        strategy.entry(id, T.bull ? strategy.long : strategy.short)
-        strategy.exit(id + " exit", id, stop = T.sl, limit = T.tp, comment_profit = "TP", comment_loss = "SL")
-        T.win := box.new(bar_index, math.max(T.entry, T.tp), bar_index + 1, math.min(T.entry, T.tp), xloc = xloc.bar_index, border_color = color.new(tpCol, 50), bgcolor = color.new(tpCol, 85))
-        T.loss := box.new(bar_index, math.max(T.entry, T.sl), bar_index + 1, math.min(T.entry, T.sl), xloc = xloc.bar_index, border_color = color.new(slCol, 50), bgcolor = color.new(slCol, 85))
-        T.lbs := array.new<label>()
-        tradeLabel(T, T.entry, (T.bull ? "LONG " : "SHORT ") + fmt(T.entry), entryCol)
-        tradeLabel(T, T.tp, "TP " + fmt(T.tp) + " · " + pipsText(tpPips), tpCol)
-        tradeLabel(T, T.sl, "SL " + fmt(T.sl) + " · " + pipsText(-tpPips / rr), slCol)
-        trades.push(T)
-        if trades.size() > keepTrades
-            old = trades.shift()
-            old.win.delete()
-            old.loss.delete()
-            for lb in old.lbs
-                lb.delete()
-        alert("Velox V2 " + syminfo.ticker + " " + (T.bull ? "LONG" : "SHORT") + " entry " + fmt(T.entry) + " | TP " + fmt(T.tp) + " | SL " + fmt(T.sl), alert.freq_once_per_bar_close)
+        stopPx = math.round_to_mintick(bestSl)
+        riskPx = math.abs(close - stopPx)
+        qty = math.max(1, math.round(riskCash / (riskPx * syminfo.pointvalue)))
+        id = best.bull ? "Long" : "Short"
+        sig = mLong.size()
+        strategy.entry(id, best.bull ? strategy.long : strategy.short, qty = qty, comment = id + " #" + str.tostring(sig))
+        strategy.exit("Exit", id, stop = stopPx, limit = math.round_to_mintick(close + sign * targetRR * riskPx), comment_profit = "TP", comment_loss = "SL")
+        curStop := stopPx
+        mLong.push(best.bull)
+        mSrc.push(best.isOb ? 1 : 0)
+        mOnZone.push(best.isOb and best.onZone)
+        mStr.push(best.strength)
+        mSes.push(sesNow)
+        mFvg.push(best.fvg)
+        mHtfZ.push(bestHtfZ)
+        mAge.push(bar_index - best.confirmBar)
+        mStop.push(stopPx)
+        goLong := best.bull
+        goShort := not best.bull
+        alert("Velox V2 Lab " + syminfo.ticker + " " + id + " signal at " + fmt(close) + " | SL " + fmt(stopPx) + " | target " + str.tostring(targetRR) + "R " + fmt(close + sign * targetRR * riskPx) + " | market order on the next candle", alert.freq_once_per_bar_close)
 
-// Keep the open trade running to the current candle.
-if showTrades and not na(T) and T.open
-    T.win.set_right(bar_index + 1)
-    T.loss.set_right(bar_index + 1)
-    for lb in T.lbs
-        lb.set_x(bar_index + 1)
+plotshape(goLong, "Long signal", shape.triangleup, location.belowbar, tpCol, size = size.tiny)
+plotshape(goShort, "Short signal", shape.triangledown, location.abovebar, slCol, size = size.tiny)
+
+// ═════════════════════════════ Research table (closed trades, in R after costs) ═════════════════════════════
+
+labPosV = labPos == "Top right" ? position.top_right : labPos == "Bottom right" ? position.bottom_right : labPos == "Top left" ? position.top_left : position.bottom_left
+var table lab = table.new(labPosV, 6, 30, bgcolor = color.new(#0b0f14, 8), frame_color = color.new(#9ca3af, 70), frame_width = 1, border_color = color.new(#9ca3af, 88), border_width = 1)
+
+labCell(int c, int r, string s, color col) =>
+    lab.cell(c, r, s, text_color = col, text_size = size.tiny, text_halign = c == 0 ? text.align_left : text.align_right)
+
+acc(array<float> gN, array<float> gW, array<float> gS, array<float> gP, array<float> gL, int g, float r) =>
+    gN.set(g, gN.get(g) + 1)
+    gW.set(g, gW.get(g) + (r > 0 ? 1 : 0))
+    gS.set(g, gS.get(g) + r)
+    gP.set(g, gP.get(g) + (r > 0 ? r : 0))
+    gL.set(g, gL.get(g) + (r < 0 ? -r : 0))
+
+pctText(int a, int b) =>
+    b > 0 ? str.tostring(100.0 * a / b, "#") + "%" : "–"
+
+if barstate.islast and showLab
+    G = 20
+    names = array.from("All trades", "Long", "Short", "Zones", "Order blocks", "  OB on a zone", "London", "New York AM", "New York PM", "Outside sessions", "Strength < 60", "Strength 60–69", "Strength 70–79", "Strength 80+", "With FVG", "Without FVG", "Near HTF zone", "Not near HTF zone", "Age ≤ 50 candles", "Age > 50 candles")
+    gN = array.new<float>(G, 0.0)
+    gW = array.new<float>(G, 0.0)
+    gS = array.new<float>(G, 0.0)
+    gP = array.new<float>(G, 0.0)
+    gL = array.new<float>(G, 0.0)
+    valid = array.new<float>()
+    float cum = 0.0
+    float peak = 0.0
+    float maxDd = 0.0
+    int streak = 0
+    int worst = 0
+    int hit1 = 0
+    int hit15 = 0
+    int hit2 = 0
+    int losers = 0
+    int losersNear = 0
+    int winners = 0
+    float winMae = 0.0
+    if rR.size() > 0
+        for j = 0 to rR.size() - 1
+            r = rR.get(j)
+            k = rSig.get(j)
+            if not na(r) and k >= 0 and k < mLong.size()
+                valid.push(r)
+                acc(gN, gW, gS, gP, gL, 0, r)
+                acc(gN, gW, gS, gP, gL, mLong.get(k) ? 1 : 2, r)
+                acc(gN, gW, gS, gP, gL, mSrc.get(k) == 0 ? 3 : 4, r)
+                if mOnZone.get(k)
+                    acc(gN, gW, gS, gP, gL, 5, r)
+                acc(gN, gW, gS, gP, gL, 6 + mSes.get(k), r)
+                st = mStr.get(k)
+                acc(gN, gW, gS, gP, gL, st < 60 ? 10 : st < 70 ? 11 : st < 80 ? 12 : 13, r)
+                acc(gN, gW, gS, gP, gL, mFvg.get(k) ? 14 : 15, r)
+                acc(gN, gW, gS, gP, gL, mHtfZ.get(k) ? 16 : 17, r)
+                acc(gN, gW, gS, gP, gL, mAge.get(k) <= 50 ? 18 : 19, r)
+                cum += r
+                peak := math.max(peak, cum)
+                maxDd := math.max(maxDd, peak - cum)
+                streak := r < 0 ? streak + 1 : 0
+                worst := math.max(worst, streak)
+                mfe = rMfe.get(j)
+                hit1 += mfe >= 1.0 ? 1 : 0
+                hit15 += mfe >= 1.5 ? 1 : 0
+                hit2 += mfe >= 2.0 ? 1 : 0
+                if r < 0
+                    losers += 1
+                    losersNear += mfe >= 0.8 ? 1 : 0
+                else if r > 0
+                    winners += 1
+                    winMae += rMae.get(j)
+    nAll = valid.size()
+    float med = na
+    if nAll > 0
+        valid.sort()
+        med := nAll % 2 == 1 ? valid.get(int((nAll - 1) / 2)) : (valid.get(int(nAll / 2) - 1) + valid.get(int(nAll / 2))) / 2
+    white = #e5e7eb
+    dim = color.new(#e5e7eb, 35)
+    labCell(0, 0, "Velox V2 Lab", white)
+    labCell(1, 0, syminfo.tickerid, dim)
+    labCell(2, 0, timeframe.period, dim)
+    labCell(3, 0, str.tostring(targetRR) + "R", dim)
+    labCell(4, 0, "", dim)
+    labCell(5, 0, "", dim)
+    labCell(0, 1, "Group", dim)
+    labCell(1, 1, "Trades", dim)
+    labCell(2, 1, "Win %", dim)
+    labCell(3, 1, "Avg R", dim)
+    labCell(4, 1, "PF", dim)
+    labCell(5, 1, "Net R", dim)
+    for g = 0 to G - 1
+        row = g + 2
+        nT = int(gN.get(g))
+        sumR = gS.get(g)
+        col = nT == 0 ? dim : sumR >= 0 ? tpCol : slCol
+        labCell(0, row, names.get(g), g == 0 ? white : dim)
+        labCell(1, row, str.tostring(nT), white)
+        labCell(2, row, pctText(int(gW.get(g)), nT), white)
+        labCell(3, row, nT > 0 ? str.tostring(sumR / nT, "#.##") : "–", col)
+        labCell(4, row, gL.get(g) > 0 ? str.tostring(gP.get(g) / gL.get(g), "#.##") : nT > 0 ? "∞" : "–", white)
+        labCell(5, row, nT > 0 ? str.tostring(sumR, "#.#") : "–", col)
+    labCell(0, 22, "Median R", dim)
+    labCell(1, 22, na(med) ? "–" : str.tostring(med, "#.##"), white)
+    labCell(0, 23, "Max drawdown (R)", dim)
+    labCell(1, 23, str.tostring(maxDd, "#.#"), white)
+    labCell(0, 24, "Longest losing streak", dim)
+    labCell(1, 24, str.tostring(worst), white)
+    labCell(0, 25, "Reached +1R before exit", dim)
+    labCell(1, 25, pctText(hit1, nAll), white)
+    labCell(0, 26, "Reached +1.5R before exit", dim)
+    labCell(1, 26, pctText(hit15, nAll), white)
+    labCell(0, 27, "Reached +2R before exit", dim)
+    labCell(1, 27, pctText(hit2, nAll), white)
+    labCell(0, 28, "Losers that reached +0.8R", dim)
+    labCell(1, 28, pctText(losersNear, losers), white)
+    labCell(0, 29, "Winners' average MAE (R)", dim)
+    labCell(1, 29, winners > 0 ? str.tostring(winMae / winners, "#.##") : "–", white)
 
 // ═════════════════════════════ Drawing (redrawn on the last candle from the engine's state) ═════════════════════════════
 
@@ -811,12 +1079,10 @@ if barstate.islast
                 isD = f.get(0) == "D"
                 zoneBox(barAtTime(int(str.tonumber(f.get(3)))), str.tonumber(f.get(1)), str.tonumber(f.get(2)), isD ? demandCol : supplyCol, f.get(5), name + " " + (isD ? "DEMAND" : "SUPPLY") + " · " + f.get(4) + (f.get(5) == "mitigated" ? " · mitigated" : ""), 2)
 
-// ═════════════════════════════ Alerts (on closed candles; create one alert with "Any alert() function call") ═════════════════════════════
+// ═════════════════════════════ Alerts (strategies use alert(); create one alert with "Any alert() function call") ═════════════════════════════
 
 if barstate.isconfirmed
     if S.newZoneBar == bar_index
-        alert("Velox V2: new " + (S.newZoneBull ? "demand" : "supply") + " zone on " + syminfo.ticker, alert.freq_once_per_bar_close)
+        alert("Velox V2 Lab: new " + (S.newZoneBull ? "demand" : "supply") + " zone on " + syminfo.ticker, alert.freq_once_per_bar_close)
     if S.newObBar == bar_index
-        alert("Velox V2: new " + (S.newObBull ? "bullish" : "bearish") + " order block on " + syminfo.ticker, alert.freq_once_per_bar_close)
-    if S.enterBar == bar_index
-        alert("Velox V2: price reached a fresh " + (S.enterBull ? "demand" : "supply") + " zone on " + syminfo.ticker + " at " + fmt(close), alert.freq_once_per_bar_close)
+        alert("Velox V2 Lab: new " + (S.newObBull ? "bullish" : "bearish") + " order block on " + syminfo.ticker, alert.freq_once_per_bar_close)

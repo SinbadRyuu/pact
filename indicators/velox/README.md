@@ -19,15 +19,21 @@ No Fibonacci.
 
 **Alerts:** long/short entry and trade closed (with prices, via "Any alert() function call"), new demand zone, new supply zone, new bullish/bearish order block, and price reaching a fresh demand/supply zone. All fire on closed candles.
 
-## Velox V2 (strategy)
+## Velox V2 — Strategy Lab
 
-`velox-v2-strategy.pine` is the same script as a **strategy**, so trades run in TradingView's **Strategy Tester** (win rate, profit factor, drawdown, list of trades). Same entries; the tester fills the 100-pip target and stop.
+`velox-v2-strategy.pine` is the research version: the same engine as a **strategy**, so TradingView's broker emulator fills the orders, plus an on-chart **research table** that splits every closed trade by setup.
 
-- Fills at the close of the signal candle, like the indicator. Default size 10 oz (0.1 lot), $10,000 starting capital, margin 5% (1:20).
-- Commission 0.15 per oz per side = 3 pips round trip, standing in for spread. Change it in **Properties**.
-- **Strategy Lab:** *Test from / Test to* dates, to tune on one period and check on another.
-- Standard candles only (Heikin Ashi or Renko give fake fills).
-- If a candle hits both the stop and the target, the tester guesses the order from the candle's shape; turn on **Bar Magnifier** in Properties (paid plans) for the real order.
+- **One entry, one structural stop, one target in R** (default 2R). No partials, no break-even, while we find out whether the entries have an edge.
+- **Signal on the close, market order at the next candle's open.** The target is re-anchored to the real fill.
+- **Stop** = far edge + 0.10 ATR. Between 0.5 and 1.5 ATR, or the trade is **skipped** (never widened).
+- **Rejection candle:** body ≥ 0.20 ATR, body ÷ range ≥ 0.55, close in the top (long) / bottom (short) 30%.
+- **First touch only**, not mitigated, level ≤ 200 candles old, strength ≥ 65.
+- **Room:** at least 1.75R to the nearest opposing zone, order block, active breaker or higher-timeframe zone. Entering inside opposing structure counts as zero room.
+- **BOS buffer:** a break must close 0.10 ATR beyond the swing (also for the internal breaks behind order blocks).
+- **Sessions:** London in UK time; NY AM 08:30–10:55 and NY PM 13:30–15:55 in **New York** time, so daylight-saving changes don't shift them.
+- **Size** = $100 risk ÷ stop distance (whole ounces): net profit ÷ 100 ≈ net R. Commission 0.15 per oz per side as a placeholder: set your broker's in Properties. Flat before the weekend (Friday 15:00 New York).
+- **Research table:** trades, win %, average R, profit factor and net R for long/short, zone/OB, OB on a zone, each session, strength buckets, FVG or not, near an HTF zone or not, level age; plus median R, max drawdown (R), longest losing streak, how often trades reached +1R / +1.5R / +2R before exit, losers that reached +0.8R, and winners' average MAE. R is measured from the real fill and real profit after costs.
+- Standard candles only. Bar Magnifier requested (paid plans) for candles that touch both stop and target.
 
 ## Install
 
