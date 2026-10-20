@@ -9,8 +9,8 @@
 //  - Stop = the level's far edge + an ATR buffer. If that stop is too small or too big, the trade is SKIPPED, never widened.
 //  - The target is re-anchored to the actual fill price, so every trade really is targetRR × its own risk.
 //  - Size = risk cash ÷ stop distance, so every trade risks about the same (default $100 = 1R). Net profit ÷ 100 ≈ net R.
-//  - Bar Magnifier is requested: on plans that have it, a candle that touches both stop and target is resolved on lower
-//    timeframe data. Without it TradingView assumes a price path inside the candle; that is an approximation.
+//  - Bar Magnifier is OFF in code (requesting it on a non-Premium plan stops the strategy). On Premium, tick it in
+//    Properties: a candle that touches both stop and target is then resolved on lower-timeframe data.
 //  - Costs: commission 0.15 per ounce per side (≈ 3 pips round trip) as a placeholder. Set YOUR broker's in Properties.
 //  - Flat before the weekend (Friday 15:00 New York) by default, so no fill is assumed across the weekend gap.
 //
@@ -19,7 +19,7 @@
 // MFE / MAE are approximate on the exit candle (the order of prices inside one candle is unknown).
 
 //@version=6
-strategy("Velox V2 — Strategy Lab", "Velox V2 Lab", overlay = true, pyramiding = 0, calc_on_every_tick = false, calc_on_order_fills = false, process_orders_on_close = false, use_bar_magnifier = true, initial_capital = 10000, currency = currency.USD, default_qty_type = strategy.fixed, default_qty_value = 1, commission_type = strategy.commission.cash_per_contract, commission_value = 0.15, slippage = 0, margin_long = 5, margin_short = 5, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
+strategy("Velox V2 — Strategy Lab", "Velox V2 Lab", overlay = true, pyramiding = 0, calc_on_every_tick = false, calc_on_order_fills = false, process_orders_on_close = false, use_bar_magnifier = false, initial_capital = 10000, currency = currency.USD, default_qty_type = strategy.fixed, default_qty_value = 1, commission_type = strategy.commission.cash_per_contract, commission_value = 0.15, slippage = 0, margin_long = 5, margin_short = 5, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 500)
 
 // Heikin Ashi, Renko and other synthetic candles produce fills that never existed.
 if barstate.isfirst and not chart.is_standard

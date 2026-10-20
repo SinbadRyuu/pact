@@ -33,7 +33,7 @@ No Fibonacci.
 - **Sessions:** London in UK time; NY AM 08:30–10:55 and NY PM 13:30–15:55 in **New York** time, so daylight-saving changes don't shift them.
 - **Size** = $100 risk ÷ stop distance (whole ounces): net profit ÷ 100 ≈ net R. Commission 0.15 per oz per side as a placeholder: set your broker's in Properties. Flat before the weekend (Friday 15:00 New York).
 - **Research table:** trades, win %, average R, profit factor and net R for long/short, zone/OB, OB on a zone, each session, strength buckets, FVG or not, near an HTF zone or not, level age; plus median R, max drawdown (R), longest losing streak, how often trades reached +1R / +1.5R / +2R before exit, losers that reached +0.8R, and winners' average MAE. R is measured from the real fill and real profit after costs.
-- Standard candles only. Bar Magnifier requested (paid plans) for candles that touch both stop and target.
+- Standard candles only. Bar Magnifier is off in code (requesting it without Premium stops the strategy); Premium users can tick it in Properties.
 
 ## Install
 
