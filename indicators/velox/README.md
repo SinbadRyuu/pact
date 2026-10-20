@@ -19,9 +19,19 @@ No Fibonacci.
 
 **Alerts:** long/short entry and trade closed (with prices, via "Any alert() function call"), new demand zone, new supply zone, new bullish/bearish order block, and price reaching a fresh demand/supply zone. All fire on closed candles.
 
+## Velox V2 (strategy)
+
+`velox-v2-strategy.pine` is the same script as a **strategy**, so trades run in TradingView's **Strategy Tester** (win rate, profit factor, drawdown, list of trades). Same entries; the tester fills the 100-pip target and stop.
+
+- Fills at the close of the signal candle, like the indicator. Default size 10 oz (0.1 lot), $10,000 starting capital, margin 5% (1:20).
+- Commission 0.15 per oz per side = 3 pips round trip, standing in for spread. Change it in **Properties**.
+- **Strategy Lab:** *Test from / Test to* dates, to tune on one period and check on another.
+- Standard candles only (Heikin Ashi or Renko give fake fills).
+- If a candle hits both the stop and the target, the tester guesses the order from the candle's shape; turn on **Bar Magnifier** in Properties (paid plans) for the real order.
+
 ## Install
 
-1. Copy all of `velox-v1.pine`. The first line must start with `// Velox V1`.
+1. Copy all of `velox-v1.pine` (or `velox-v2-strategy.pine`) with the **copy button**, not by selecting text: Pine needs the indentation, and selecting text from a chat or web page can strip it.
 2. On TradingView, open the **Pine Editor**: press **⌘K** / **Ctrl+K** and type "Pine".
 3. Select all and delete, paste, **Save**, then **Add to chart**.
 4. To share it without showing the code, use **Publish script → Protected** or **Invite-only**.
