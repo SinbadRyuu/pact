@@ -14,6 +14,9 @@ strategy("Velox V2B.2 — Clean Supply & Demand Lab", "Velox V2B.2", overlay = t
 //  - Trade boxes stop at the exit instead of extending right forever.
 //  - Velox box: trend, strength (ADX), volume, session, and the trend on this and the next two timeframes.
 //    Backtest stats are a separate, optional table.
+//  - Session boxes (Asia, London, NY AM, NY PM) instead of background shading.
+//  - Order blocks and breaker blocks drawn (from local structure); they also count as opposing structure
+//    in the room check. Entries are still from supply/demand zones only (Phase 1).
 
 // Explicitly reserve enough history for time conversions in bar-index drawings.
 max_bars_back(time, 3500)
@@ -59,10 +62,34 @@ htfManual = input.timeframe("240", "Manual timeframe", group = grpHtf, tooltip =
 
 grpSession = "Sessions"
 useSessionFilter = input.bool(true, "Only London / NY sessions on 1H and below", group = grpSession)
-londonSession = input.session("0700-1000", "London", group = grpSession)
-nyAmSession = input.session("0830-1100", "New York AM", group = grpSession)
-nyPmSession = input.session("1330-1600", "New York PM", group = grpSession)
-showSessionShade = input.bool(true, "Shade active sessions", group = grpSession)
+showSessionBoxes = input.bool(true, "Show session boxes", group = grpSession)
+sesDays = input.int(5, "Days of session boxes", minval = 1, maxval = 30, group = grpSession)
+asiaSession = input.session("0100-0450", "Asia (UK time, box only)", inline = "asia", group = grpSession)
+asiaCol = input.color(#ef4444, "", inline = "asia", group = grpSession)
+londonSession = input.session("0700-1000", "London (UK time)", inline = "lon", group = grpSession)
+londonCol = input.color(#06b6d4, "", inline = "lon", group = grpSession)
+nyAmSession = input.session("0830-1100", "New York AM (NY time)", inline = "nyam", group = grpSession)
+nyAmCol = input.color(#f97316, "", inline = "nyam", group = grpSession)
+nyPmSession = input.session("1330-1600", "New York PM (NY time)", inline = "nypm", group = grpSession)
+nyPmCol = input.color(#3b82f6, "", inline = "nypm", group = grpSession)
+
+grpOb = "Order blocks & breaker blocks"
+showOb = input.bool(true, "Show order blocks", group = grpOb)
+obSwingLen = input.int(5, "Order block swing length", minval = 1, maxval = 50, group = grpOb, tooltip = "Order blocks come from breaks of this shorter, local structure.")
+obLookback = input.int(5, "Look back from the low/high for the candle", minval = 0, maxval = 50, group = grpOb)
+obMinDisp = input.float(1.5, "Min move away (ATR)", minval = 0.0, step = 0.1, group = grpOb)
+minImpulse = input.int(2, "Min strong candles in the move", minval = 0, maxval = 50, group = grpOb)
+impulseBody = input.float(0.5, "Strong candle: body / range at least", minval = 0.0, maxval = 1.0, step = 0.05, group = grpOb)
+obMaxBars = input.int(30, "Break within (bars)", minval = 1, maxval = 499, group = grpOb)
+obMaxH = input.float(0.75, "Max block height (ATR)", minval = 0.05, step = 0.05, group = grpOb)
+maxObSide = input.int(1, "Order blocks shown per side", minval = 1, maxval = 10, group = grpOb)
+showBb = input.bool(true, "Show breaker blocks", group = grpOb, tooltip = "A failed order block flips role: a broken bullish OB becomes resistance. It ends when price closes back through it or after the expiry.")
+maxBbSide = input.int(1, "Breaker blocks shown per side", minval = 1, maxval = 10, group = grpOb)
+bbLife = input.int(50, "Breaker blocks expire after (bars)", minval = 1, maxval = 2000, group = grpOb)
+roomIncludesBlocks = input.bool(true, "Room check includes opposing OBs and breakers", group = grpOb)
+obBullCol = input.color(#3b82f6, "Bullish OB", inline = "obc", group = grpOb)
+obBearCol = input.color(#f59e0b, "Bearish OB", inline = "obc", group = grpOb)
+bbCol = input.color(#a855f7, "Breaker", inline = "obc", group = grpOb)
 
 grpTest = "Test window"
 testStart = input.time(timestamp("01 Jan 2024 00:00 +0000"), "Test from", group = grpTest)
@@ -108,6 +135,16 @@ type Zone
     bool inside
     int touchBar
     bool traded
+
+// An order block. status: "live" → "breaker" (failed, role flipped) → "dead".
+type Block
+    bool bull
+    float top
+    float bottom
+    int originBar
+    int confirmBar
+    string status
+    int breakerBar
 
 // ═════════════════════════════ Helpers ═════════════════════════════
 
@@ -166,7 +203,7 @@ buildZone(bool bull, int swingBar) =>
         result := Zone.new(bull, math.round_to_mintick(top), math.round_to_mintick(bottom), originBar, bar_index, originAtr, baseStrength, int(math.round(math.min(100.0, baseStrength + 20.0))), "fresh", 0, false, na, false)
     result
 
-roomToOpposing(array<Zone> zs, bool bull, float entry) =>
+roomToOpposing(array<Zone> zs, array<Block> bs, bool bull, float entry) =>
     float room = na
     if zs.size() > 0
         for z in zs
@@ -176,7 +213,89 @@ roomToOpposing(array<Zone> zs, bool bull, float entry) =>
                 float dist = bull ? edge - entry : entry - edge
                 if dist > 0 and (na(room) or dist < room)
                     room := dist
+    if roomIncludesBlocks and bs.size() > 0
+        for b in bs
+            bool role = b.status == "breaker" ? not b.bull : b.bull
+            if b.status != "dead" and role != bull
+                float edge = bull ? b.bottom : b.top
+                float dist = bull ? edge - entry : entry - edge
+                if dist > 0 and (na(room) or dist < room)
+                    room := dist
     room
+
+// Order block: the last opposite-close candle at or before the lowest low (highest high) since the broken
+// local swing, kept only if the move away was strong (displacement, strong candles, quick break, not broken through).
+findBlock(bool bull, int swingBar) =>
+    int fromBar = math.max(swingBar + 1, bar_index - 499)
+    int o = fromBar
+    for j = fromBar to bar_index
+        int off = bar_index - j
+        int oOff = bar_index - o
+        if bull ? low[off] < low[oOff] : high[off] > high[oOff]
+            o := j
+    int ob = -1
+    int lim = math.max(fromBar, o - obLookback)
+    for j = o to lim
+        int off = bar_index - j
+        if bull ? close[off] < open[off] : close[off] > open[off]
+            ob := j
+            break
+    Block result = na
+    float a = atr[bar_index - o]
+    if ob >= 0 and bar_index - ob <= obMaxBars and not na(a) and a > 0
+        int bOff = bar_index - ob
+        float top = math.max(open[bOff], close[bOff])
+        float bot = math.min(open[bOff], close[bOff])
+        if top - bot > obMaxH * a
+            if bull
+                top := bot + obMaxH * a
+            else
+                bot := top - obMaxH * a
+        float sign = bull ? 1.0 : -1.0
+        float nearE = bull ? top : bot
+        float farE = bull ? bot : top
+        float disp = sign * (close - nearE) / a
+        bool broken = false
+        int imp = 0
+        if ob < bar_index
+            for j = ob + 1 to bar_index
+                int off = bar_index - j
+                if sign * (close[off] - farE) < 0
+                    broken := true
+                float rng = high[off] - low[off]
+                if (bull ? close[off] > open[off] : close[off] < open[off]) and rng > 0 and math.abs(close[off] - open[off]) / rng >= impulseBody
+                    imp += 1
+        if not broken and disp >= obMinDisp and imp >= minImpulse
+            result := Block.new(bull, math.round_to_mintick(top), math.round_to_mintick(bot), ob, bar_index, "live", na)
+    result
+
+blockExists(array<Block> bs, bool bull, int originBar) =>
+    bool found = false
+    if bs.size() > 0
+        for b in bs
+            if b.bull == bull and b.originBar == originBar
+                found := true
+    found
+
+// Indexes of the n blocks nearest to price with the given role (a breaker's role is flipped).
+nearestBlocks(array<Block> bs, bool role, bool breakers, int wanted) =>
+    array<int> out = array.new<int>()
+    for slot = 1 to wanted
+        int best = -1
+        float bestDist = 1e20
+        if bs.size() > 0
+            for i = 0 to bs.size() - 1
+                Block b = bs.get(i)
+                bool isBrk = b.status == "breaker"
+                bool r = isBrk ? not b.bull : b.bull
+                if b.status != "dead" and isBrk == breakers and r == role and not out.includes(i)
+                    float dist = math.abs(close - (b.top + b.bottom) * 0.5)
+                    if dist < bestDist
+                        best := i
+                        bestDist := dist
+        if best >= 0
+            out.push(best)
+    out
 
 nearestIndexes(array<Zone> zs, bool bull, int wanted) =>
     array<int> out = array.new<int>()
@@ -238,6 +357,16 @@ var int swingLowBar = na
 var bool swingLowBroken = true
 var int chartTrend = 0
 var array<Zone> zones = array.new<Zone>()
+
+iph = ta.pivothigh(high, obSwingLen, obSwingLen)
+ipl = ta.pivotlow(low, obSwingLen, obSwingLen)
+var float iSwingHigh = na
+var int iSwingHighBar = na
+var bool iSwingHighBroken = true
+var float iSwingLow = na
+var int iSwingLowBar = na
+var bool iSwingLowBroken = true
+var array<Block> blocks = array.new<Block>()
 
 if barstate.isconfirmed
     if not na(ph)
@@ -308,6 +437,50 @@ if barstate.isconfirmed
     while zones.size() > maxZones
         zones.shift()
 
+    // Order blocks from the local (internal) structure, with the same BOS close buffer.
+    if not na(iph)
+        iSwingHigh := iph
+        iSwingHighBar := bar_index - obSwingLen
+        iSwingHighBroken := false
+    if not na(ipl)
+        iSwingLow := ipl
+        iSwingLowBar := bar_index - obSwingLen
+        iSwingLowBroken := false
+    bool iUp = not iSwingHighBroken and not na(iSwingHigh) and not na(atr) and close > iSwingHigh + bosBufATR * atr
+    bool iDown = not iSwingLowBroken and not na(iSwingLow) and not na(atr) and close < iSwingLow - bosBufATR * atr
+    if iUp and iDown
+        iUp := false
+        iDown := false
+    if iUp
+        iSwingHighBroken := true
+        Block nb = findBlock(true, iSwingHighBar)
+        if not na(nb) and not blockExists(blocks, true, nb.originBar)
+            blocks.push(nb)
+    if iDown
+        iSwingLowBroken := true
+        Block nb = findBlock(false, iSwingLowBar)
+        if not na(nb) and not blockExists(blocks, false, nb.originBar)
+            blocks.push(nb)
+
+    // Block lifecycle: a close through the far edge turns an OB into a breaker; a close back through the
+    // near edge (or the expiry) ends the breaker.
+    if blocks.size() > 0
+        for i = blocks.size() - 1 to 0
+            Block b = blocks.get(i)
+            if b.confirmBar < bar_index
+                float sign = b.bull ? 1.0 : -1.0
+                float nearE = b.bull ? b.top : b.bottom
+                float farE = b.bull ? b.bottom : b.top
+                if b.status == "live" and sign * (close - farE) < 0
+                    b.status := showBb ? "breaker" : "dead"
+                    b.breakerBar := bar_index
+                else if b.status == "breaker" and (sign * (close - nearE) > 0 or bar_index - b.breakerBar > bbLife)
+                    b.status := "dead"
+            if b.status == "dead" or bar_index - b.confirmBar > 2000
+                blocks.remove(i)
+    while blocks.size() > 150
+        blocks.shift()
+
 // Previous CLOSED higher-timeframe candle only ([1] + lookahead_on): no repainting.
 htfTrend = request.security(syminfo.tickerid, htfTf, htfTrendEngine()[1], lookahead = barmerge.lookahead_on)
 
@@ -319,15 +492,29 @@ inNyPm = not na(time(timeframe.period, nyPmSession, "America/New_York"))
 inKillzone = inLondon or inNyAm or inNyPm
 sessionOk = not useSessionFilter or chartSec > 3600 or inKillzone
 
-color sessionShade = na
-if showSessionShade and chartSec <= 3600
-    if inLondon
-        sessionShade := color.new(color.aqua, 92)
-    else if inNyAm
-        sessionShade := color.new(color.orange, 92)
-    else if inNyPm
-        sessionShade := color.new(color.blue, 93)
-bgcolor(sessionShade)
+// Outlined session boxes (high-low of each session), last `sesDays` days, 1H charts and below.
+recent = timenow - time <= sesDays * 86400000
+sessionBox(string sess, string tz, string name, color col) =>
+    var box b = na
+    var float hi = na
+    var float lo = na
+    bool inS = showSessionBoxes and chartSec <= 3600 and recent and not na(time(timeframe.period, sess, tz))
+    if inS and not inS[1]
+        hi := high
+        lo := low
+        b := box.new(bar_index, hi, bar_index, lo, xloc = xloc.bar_index, border_color = col, border_width = 1, bgcolor = color(na), text = name, text_color = col, text_size = size.small, text_valign = text.align_top, text_halign = text.align_center)
+    else if inS and not na(b)
+        hi := math.max(hi, high)
+        lo := math.min(lo, low)
+        b.set_top(hi)
+        b.set_bottom(lo)
+        b.set_right(bar_index)
+    inS
+
+boxAsia = sessionBox(asiaSession, "Europe/London", "Asia", asiaCol)
+boxLondon = sessionBox(londonSession, "Europe/London", "London", londonCol)
+boxNyAm = sessionBox(nyAmSession, "America/New_York", "New York AM", nyAmCol)
+boxNyPm = sessionBox(nyPmSession, "America/New_York", "New York PM", nyPmCol)
 
 // ═════════════════════════════ Trade result bookkeeping ═════════════════════════════
 
@@ -452,7 +639,7 @@ if barstate.isconfirmed and inDateRange and flat and not closedNow and sessionOk
             float stopPx = far - sign * slBufATR * atr
             float riskPx = sign * (close - stopPx)
             bool riskOk = riskPx >= minRiskATR * atr and riskPx <= maxRiskATR * atr
-            float room = roomToOpposing(zones, z.bull, close)
+            float room = roomToOpposing(zones, blocks, z.bull, close)
             bool roomOk = na(room) or (riskPx > 0 and room / riskPx >= minRoomR)
             float score = float(z.strength)
             if firstTouch and ageOk and strengthOk and directionOk and bodyOk and locationOk and chartTrendOk and htfTrendOk and riskOk and roomOk and not z.traded
@@ -557,6 +744,20 @@ if barstate.islast or barstate.islastconfirmedhistory
                 string txt = (bull ? "DEMAND" : "SUPPLY") + " · " + str.tostring(z.strength) + " · " + z.status + " · T" + str.tostring(z.touches)
                 box zb = box.new(math.max(z.originBar, bar_index - 3000), z.top, bar_index, z.bottom, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(c, 25), bgcolor = color.new(c, fade), text = txt, text_color = c, text_size = size.tiny, text_halign = text.align_center)
                 drawnZones.push(zb)
+    if showOb
+        for bull in array.from(true, false)
+            array<int> obIds = nearestBlocks(blocks, bull, false, maxObSide)
+            if obIds.size() > 0
+                for idx in obIds
+                    Block b = blocks.get(idx)
+                    color c = bull ? obBullCol : obBearCol
+                    drawnZones.push(box.new(math.max(b.originBar, bar_index - 3000), b.top, bar_index + 10, b.bottom, xloc = xloc.bar_index, border_color = c, bgcolor = color.new(c, 82), text = "OB", text_color = c, text_size = size.tiny, text_halign = text.align_left))
+            if showBb
+                array<int> bbIds = nearestBlocks(blocks, bull, true, maxBbSide)
+                if bbIds.size() > 0
+                    for idx in bbIds
+                        Block b = blocks.get(idx)
+                        drawnZones.push(box.new(math.max(b.originBar, bar_index - 3000), b.top, bar_index + 10, b.bottom, xloc = xloc.bar_index, border_color = bbCol, border_style = line.style_dashed, bgcolor = color.new(bbCol, 86), text = "BB", text_color = bbCol, text_size = size.tiny, text_halign = text.align_left))
 
 // ═════════════════════════════ Velox box ═════════════════════════════
 
