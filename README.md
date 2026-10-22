@@ -6,6 +6,12 @@ A ready-to-paste Investment section for the website: disclaimer gate, Get Starte
 
 ➡️ See [`investment-tab/README.md`](investment-tab/README.md) for 2-minute install steps.
 
+## Investment portal
+
+VT Investment as its own portal on vtimpact.com, next to Impact Travel and Impact Affiliates.
+
+➡️ See [`investment-portal/README.md`](investment-portal/README.md) for install steps.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
