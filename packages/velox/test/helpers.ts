@@ -81,3 +81,43 @@ export const DEMAND_ROWS = [
   [94.5, 94.8, 92.9, 93.2], // index 21: reaches halfway into the zone: mitigated
   [93.2, 93.4, 91, 91.5], // index 22: closes below 92: invalid
 ] as const
+
+/**
+ * Break-of-structure scenario (use with swingLength 2, atrPeriod 5):
+ *  - swing high 104.5 at index 6 (confirmed at index 8)
+ *  - decline to the low 94 at index 11, a DOWN-close candle (open 96, close 95.2)
+ *  - three strong up candles; index 14 closes 105.2, above 104.5: the break
+ *  - then: back to the zone (index 19), five candles of one visit, leaves (23), returns (24),
+ *    wicks below the low but closes above it (25), closes below it (26), closes back above the
+ *    order block (27)
+ */
+export const BOS_ROWS = [
+  [100, 101, 99, 100.2],
+  [100.2, 101.1, 99.1, 100],
+  [100, 101, 99, 100.3],
+  [100.3, 101.2, 99.2, 100.1],
+  [100.1, 101, 99, 100],
+  [100, 102, 99.8, 101.8],
+  [101.8, 104.5, 101.5, 104], // 6: swing high
+  [104, 104.2, 102, 102.4],
+  [102.4, 102.8, 100, 100.5], // 8: swing high confirmed
+  [100.5, 100.8, 97.5, 98],
+  [98, 98.5, 95.6, 96],
+  [96, 96.4, 94, 95.2], // 11: the low, a down-close candle
+  [95.2, 98, 95, 97.8],
+  [97.8, 101, 97.6, 100.8],
+  [100.8, 105.5, 100.6, 105.2], // 14: closes above 104.5
+  [105.2, 106, 104.8, 105.6],
+  [105.6, 106.2, 103, 103.4],
+  [103.4, 103.8, 100, 100.4],
+  [100.4, 100.8, 97.5, 98],
+  [98, 98.4, 95, 95.6], // 19: first visit (low 95 reaches the zone's top, 95.2)
+  [95.6, 95.9, 94.9, 95.5], // 20–22: still the same visit
+  [95.5, 96, 95.1, 95.8],
+  [95.8, 97.5, 95.7, 97.2],
+  [97.2, 98.5, 97, 98.2], // 23: leaves
+  [98.2, 98.4, 95.1, 95.4], // 24: second visit
+  [95.4, 95.6, 93.6, 94.3], // 25: wick below 94, close above it
+  [94.3, 94.5, 92, 92.5], // 26: closes below 94
+  [92.5, 97, 92.3, 96.8], // 27: closes back above the order block's high (96.4)
+] as const

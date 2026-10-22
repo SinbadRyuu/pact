@@ -40,27 +40,49 @@ export type Swing = {
 export type ZoneType = `supply` | `demand`
 
 /**
- * fresh     confirmed, and price has not come back to it
- * tested    price has come back into it at least once (see `touches`)
- * mitigated price has traded through at least `mitigationDepth` of its height
- * invalid   a candle has closed beyond its far edge (plus `invalidationATR`)
+ * The lifecycle shared by zones and order blocks. It only ever moves forward.
+ *
+ * fresh     confirmed, and no candle has reached the near (proximal) edge since
+ * tested    a candle reached the near edge (one visit, however many candles stay inside)
+ * mitigated a candle reached `mitigationDepth` of the way to the far (distal) edge
+ * invalid   a candle closed beyond the far edge (or wicked beyond it, in `wick` invalidation mode)
  */
 export type ZoneStatus = `fresh` | `tested` | `mitigated` | `invalid`
 
-/** One line of the score breakdown, so every point in a zone's strength can be explained. */
+/** One line of a strength breakdown, so every point can be explained. */
 export type ScoreFactor = {
-  key: `displacement` | `structure` | `base` | `speed` | `timeframe` | `freshness`
+  key: `displacement` | `structure` | `orderBlock` | `fvg` | `speed` | `freshness` | `timeframe` | `zone` | `impulse`
   label: string
   points: number
   max: number
   detail: string
 }
 
-export type ZoneEvent = {
+export type LevelEvent = {
   time: number
-  kind: `touch` | `left` | `mitigated` | `invalidated`
+  kind: `touch` | `left` | `mitigated` | `invalidated` | `breaker` | `breaker-ended`
 }
 
+/**
+ * A break of structure: a candle CLOSED beyond the last confirmed, unbroken swing.
+ * CHoCH when it went against the previous trend (or there was none), BOS when it went with it.
+ */
+export type StructureEvent = {
+  id: string
+  kind: `BOS` | `CHoCH`
+  direction: `up` | `down`
+  /** The swing price that was broken. */
+  level: number
+  swingId: string
+  /** Open time of the breaking candle. */
+  time: number
+  confirmedAt: number
+}
+
+/**
+ * A demand zone is the PLACE price turned from: the wick of the lowest low between the broken swing
+ * high and the breaking candle ("the low that broke the high"). A supply zone is the mirror.
+ */
 export type SupplyDemandZone = {
   /** Stable: the same candles and settings always give the same id. */
   id: string
@@ -69,14 +91,12 @@ export type SupplyDemandZone = {
   provider: string
   timeframe: Timeframe
 
-  /** For demand, `high` is the proximal (near) edge and `low` the distal (far) edge; the reverse for supply. */
+  /** For demand, `high` is the near (proximal) edge and `low` the far (distal) wick; the reverse for supply. */
   high: number
   low: number
 
-  /** Open time of the first base candle: where the chart may start drawing the zone. */
+  /** Open time of the origin candle: where the chart may start drawing the zone. */
   originTime: number
-  /** Open time of the last base candle. */
-  baseEndTime: number
   /** Close time of the candle on which the zone was confirmed. Before this, the zone did not exist. */
   confirmedAt: number
 
@@ -89,52 +109,95 @@ export type SupplyDemandZone = {
   status: ZoneStatus
   statusChangedAt: number
   touches: number
-  events: ZoneEvent[]
+  events: LevelEvent[]
 
   source: {
-    swingId: string
-    /** Largest close beyond the near edge within the departure window, in ATRs at the base. */
+    /** The break this zone launched, or null for a zone without one (`requireBOS: false`). */
+    structureEventId: string | null
+    /** The confirmed swing the zone sits on, for zones without a break. */
+    swingId: string | null
+    /** How far the break (or departure) closed beyond the near edge, in ATRs at the origin. */
     displacementATR: number
-    /** Candles after the base before the displacement threshold was reached. */
+    /** Candles from the origin to the break (or to the displacement). */
     departureBars: number
-    baseCandles: number
-    /** The opposite swing the departure closed beyond, if it did by confirmation. */
-    brokeStructure: { swingId: string; price: number } | null
+    /** The order block from the same break, when it is on this zone. */
+    orderBlockId: string | null
+    /** A fair value gap the departure left behind, in the zone's direction, known by confirmation. */
+    fvgId: string | null
     atr: number
   }
+  /** Every order block that has since been found on this zone, in the order they were confirmed. */
+  relatedOrderBlockIds: string[]
 
   engineVersion: string
 }
-
-export type SignalSide = `buy` | `sell`
 
 /**
- * A rule-based entry at a zone, with a stop and a target. The target is always 1:1 with the stop:
- * takeProfit = entry ± (entry − stopLoss).
+ * An order block is the CANDLE a move started from: the last down-close candle (bullish) or up-close
+ * candle (bearish) at or before the origin of a move that broke structure, accepted only if that move
+ * was strong enough. It is only known to be an order block once the break has closed.
  */
-export type Signal = {
+export type OrderBlock = {
   id: string
-  zoneId: string
-  side: SignalSide
-  /** Open time of the candle on which price first came back into the zone. */
-  time: number
-  entry: number
-  stopLoss: number
-  takeProfit: number
-  risk: number
-  outcome: `open` | `tp` | `sl`
-  closedAt: number | null
+  type: `bullish` | `bearish`
+  symbol: string
+  provider: string
+  timeframe: Timeframe
+  high: number
+  low: number
+  /** Open time of the order-block candle. */
+  originTime: number
+  /** Close time of the breaking candle. */
+  confirmedAt: number
+
+  strengthAtConfirmation: number
+  strength: number
+  score: ScoreFactor[]
+
+  status: ZoneStatus
+  statusChangedAt: number
+  touches: number
+  events: LevelEvent[]
+
+  /** How far the break closed beyond the order block's near edge, in ATRs. */
+  displacementATR: number
+  /** Strong candles in the move's direction between the order block and the break. */
+  impulseCandles: number
+  bosId: string
+  /** The zone it sits on, if any, known at confirmation. */
+  parentZoneId: string | null
+  /** Set when the order block failed and became a breaker block: its role flips (support ↔ resistance). */
+  breaker: { since: number; endedAt: number | null } | null
+
   engineVersion: string
 }
 
-/** A swing that has been confirmed but whose departure has not yet been strong enough. Not a zone. */
-export type DevelopingZone = {
-  type: ZoneType
-  swingId: string
+/**
+ * A three-candle imbalance. Bullish: the third candle's low is above the first candle's high, leaving
+ * the range between them untraded. Bearish is the mirror. Drawn from the middle candle; known at the
+ * close of the third.
+ *
+ * open     price has not traded back into the gap
+ * partial  price has traded into it (`filled` says how far, 0–1)
+ * filled   price has traded all the way through it
+ */
+export type FairValueGap = {
+  id: string
+  direction: `bullish` | `bearish`
+  symbol: string
+  provider: string
+  timeframe: Timeframe
   high: number
   low: number
+  /** Open time of the middle candle. */
   originTime: number
-  expiresAfter: number
+  confirmedAt: number
+  sizeATR: number
+  status: `open` | `partial` | `filled`
+  statusChangedAt: number
+  /** Deepest fill so far, from 0 (untouched) to 1 (fully filled). */
+  filled: number
+  engineVersion: string
 }
 
 export type VeloxState = {
@@ -146,7 +209,8 @@ export type VeloxState = {
   asOf: number | null
   candles: number
   swings: Swing[]
+  structure: StructureEvent[]
   zones: SupplyDemandZone[]
-  developing: DevelopingZone[]
-  signals: Signal[]
+  orderBlocks: OrderBlock[]
+  fvgs: FairValueGap[]
 }

@@ -1,0 +1,844 @@
+//@version=6
+strategy("Velox V2B.2 — Clean Supply & Demand Lab", "Velox V2B.2", overlay = true, pyramiding = 0, initial_capital = 1000000, margin_long = 100, margin_short = 100, commission_type = strategy.commission.percent, commission_value = 0.01, slippage = 1, process_orders_on_close = false, calc_on_order_fills = false, calc_on_every_tick = false, use_bar_magnifier = false, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 1000)
+
+// PACT Finance — clean-room Phase 1 research strategy.
+// Purpose: test the CORE supply/demand entry idea without partial exits, break-even logic,
+// order-block scoring, breaker trades, or other layers that can hide whether the basic entry has edge.
+// This is research code, not financial advice and not a claim of profitability.
+// Syntax-reviewed; TradingView's compiler was not run outside TradingView.
+//
+// V2B.2 changes from V2B.1:
+//  - Higher timeframe is Auto by default (1m→15m, 5m→1H, 15m/1H→4H, 4H→D, D→W): no more stop on the 4H chart.
+//  - Zone ATR is read from the real candle history (V2B.1 read the history of a function argument, which
+//    only advances when the function is called, so the zone's ATR could come from the wrong candle).
+//  - Trade boxes stop at the exit instead of extending right forever.
+//  - Velox box: trend, strength (ADX), volume, session, and the trend on this and the next two timeframes.
+//    Backtest stats are a separate, optional table.
+//  - Session boxes (Asia, London, NY AM, NY PM) instead of background shading.
+//  - Order blocks and breaker blocks drawn (from local structure); they also count as opposing structure
+//    in the room check. Entries are still from supply/demand zones only (Phase 1).
+
+// Explicitly reserve enough history for time conversions in bar-index drawings.
+max_bars_back(time, 3500)
+
+// ═════════════════════════════ Inputs ═════════════════════════════
+
+grpCore = "Core supply & demand"
+swingLen = input.int(10, "Swing length", minval = 2, maxval = 50, group = grpCore)
+atrLen = input.int(14, "ATR length", minval = 2, maxval = 100, group = grpCore)
+bosBufATR = input.float(0.10, "BOS close buffer (ATR)", minval = 0.0, step = 0.05, group = grpCore)
+zoneMinDisp = input.float(1.50, "Minimum departure (ATR)", minval = 0.25, step = 0.25, group = grpCore)
+zoneMinH = input.float(0.15, "Minimum zone height (ATR)", minval = 0.05, step = 0.05, group = grpCore)
+zoneMaxH = input.float(1.00, "Maximum zone height (ATR)", minval = 0.10, step = 0.10, group = grpCore)
+speedZeroBars = input.int(20, "Departure speed zero-score bars", minval = 2, maxval = 200, group = grpCore)
+maxZones = input.int(100, "Maximum live zones kept", minval = 10, maxval = 300, group = grpCore)
+showPerSide = input.int(2, "Zones displayed per side", minval = 1, maxval = 5, group = grpCore)
+
+grpLife = "Zone lifecycle"
+touchExitATR = input.float(0.50, "Leave distance before a new visit (ATR)", minval = 0.0, step = 0.10, group = grpLife)
+mitigationDepth = input.float(0.50, "Mitigated at depth", minval = 0.10, maxval = 1.00, step = 0.10, group = grpLife)
+invalidationBufATR = input.float(0.00, "Close invalidation buffer (ATR)", minval = 0.0, step = 0.05, group = grpLife)
+showMitigated = input.bool(true, "Show mitigated zones", group = grpLife)
+
+grpTrade = "Phase 1 entry test"
+targetR = input.float(2.00, "Target (R)", minval = 0.50, maxval = 5.00, step = 0.50, group = grpTrade)
+minStrength = input.int(65, "Minimum zone strength", minval = 0, maxval = 100, group = grpTrade)
+armBars = input.int(3, "Reject within bars of first touch", minval = 0, maxval = 10, group = grpTrade)
+maxZoneAge = input.int(200, "Maximum zone age (bars)", minval = 10, maxval = 2000, group = grpTrade)
+rejectBodyATR = input.float(0.20, "Rejection body minimum (ATR)", minval = 0.0, step = 0.05, group = grpTrade)
+rejectBodyRatio = input.float(0.55, "Rejection body / range minimum", minval = 0.0, maxval = 1.0, step = 0.05, group = grpTrade)
+rejectCloseLoc = input.float(0.70, "Long close location / mirrored short", minval = 0.50, maxval = 1.00, step = 0.05, group = grpTrade)
+slBufATR = input.float(0.10, "Stop beyond distal edge (ATR)", minval = 0.0, step = 0.05, group = grpTrade)
+minRiskATR = input.float(0.50, "Minimum stop distance (ATR)", minval = 0.05, step = 0.05, group = grpTrade)
+maxRiskATR = input.float(1.50, "Maximum stop distance (ATR)", minval = 0.10, step = 0.10, group = grpTrade)
+minRoomR = input.float(1.75, "Minimum room to opposing zone (R)", minval = 0.0, step = 0.25, group = grpTrade)
+riskCash = input.float(100.0, "Planned cash risk per trade", minval = 1.0, step = 10.0, group = grpTrade)
+requireChartTrend = input.bool(true, "Require chart structure alignment", group = grpTrade)
+requireHtfTrend = input.bool(true, "Require confirmed HTF structure alignment", group = grpTrade)
+
+grpHtf = "Higher timeframe"
+htfMode = input.string("Auto", "Higher timeframe", options = ["Auto", "Manual"], group = grpHtf, tooltip = "Auto: 1m → 15m, 5m → 1H, 15m and 1H → 4H, 4H → Daily, Daily → Weekly.")
+htfManual = input.timeframe("240", "Manual timeframe", group = grpHtf, tooltip = "Used only in Manual mode. If it is not higher than the chart, the HTF filter is switched off instead of stopping the script.")
+
+grpSession = "Sessions"
+useSessionFilter = input.bool(true, "Only London / NY sessions on 1H and below", group = grpSession)
+showSessionBoxes = input.bool(true, "Show session boxes", group = grpSession)
+sesDays = input.int(5, "Days of session boxes", minval = 1, maxval = 30, group = grpSession)
+asiaSession = input.session("0100-0450", "Asia (UK time, box only)", inline = "asia", group = grpSession)
+asiaCol = input.color(#ef4444, "", inline = "asia", group = grpSession)
+londonSession = input.session("0700-1000", "London (UK time)", inline = "lon", group = grpSession)
+londonCol = input.color(#06b6d4, "", inline = "lon", group = grpSession)
+nyAmSession = input.session("0830-1100", "New York AM (NY time)", inline = "nyam", group = grpSession)
+nyAmCol = input.color(#f97316, "", inline = "nyam", group = grpSession)
+nyPmSession = input.session("1330-1600", "New York PM (NY time)", inline = "nypm", group = grpSession)
+nyPmCol = input.color(#3b82f6, "", inline = "nypm", group = grpSession)
+
+grpOb = "Order blocks & breaker blocks"
+showOb = input.bool(true, "Show order blocks", group = grpOb)
+obSwingLen = input.int(5, "Order block swing length", minval = 1, maxval = 50, group = grpOb, tooltip = "Order blocks come from breaks of this shorter, local structure.")
+obLookback = input.int(5, "Look back from the low/high for the candle", minval = 0, maxval = 50, group = grpOb)
+obMinDisp = input.float(1.5, "Min move away (ATR)", minval = 0.0, step = 0.1, group = grpOb)
+minImpulse = input.int(2, "Min strong candles in the move", minval = 0, maxval = 50, group = grpOb)
+impulseBody = input.float(0.5, "Strong candle: body / range at least", minval = 0.0, maxval = 1.0, step = 0.05, group = grpOb)
+obMaxBars = input.int(30, "Break within (bars)", minval = 1, maxval = 499, group = grpOb)
+obMaxH = input.float(0.75, "Max block height (ATR)", minval = 0.05, step = 0.05, group = grpOb)
+maxObSide = input.int(1, "Order blocks shown per side", minval = 1, maxval = 10, group = grpOb)
+showBb = input.bool(true, "Show breaker blocks", group = grpOb, tooltip = "A failed order block flips role: a broken bullish OB becomes resistance. It ends when price closes back through it or after the expiry.")
+maxBbSide = input.int(1, "Breaker blocks shown per side", minval = 1, maxval = 10, group = grpOb)
+bbLife = input.int(50, "Breaker blocks expire after (bars)", minval = 1, maxval = 2000, group = grpOb)
+roomIncludesBlocks = input.bool(true, "Room check includes opposing OBs and breakers", group = grpOb)
+obBullCol = input.color(#3b82f6, "Bullish OB", inline = "obc", group = grpOb)
+obBearCol = input.color(#f59e0b, "Bearish OB", inline = "obc", group = grpOb)
+bbCol = input.color(#a855f7, "Breaker", inline = "obc", group = grpOb)
+
+grpTest = "Test window"
+testStart = input.time(timestamp("01 Jan 2024 00:00 +0000"), "Test from", group = grpTest)
+testEnd = input.time(timestamp("31 Dec 2030 23:59 +0000"), "Test to", group = grpTest)
+
+grpVisual = "Visuals"
+showStructure = input.bool(true, "Show BOS / CHoCH", group = grpVisual)
+showTradePlan = input.bool(true, "Show entry / TP / SL boxes", group = grpVisual)
+keepTrades = input.int(10, "Trades drawn", minval = 1, maxval = 50, group = grpVisual)
+
+grpDash = "Velox box"
+showDashboard = input.bool(true, "Show Velox box", group = grpDash, tooltip = "Trend, strength, volume, session and the trend on this and the next two timeframes.")
+dashSize = input.string("Small", "Text size", options = ["Tiny", "Small", "Normal"], group = grpDash)
+dashPos = input.string("Top right", "Position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = grpDash)
+showStats = input.bool(false, "Show backtest stats (separate table)", group = grpDash)
+statsPos = input.string("Bottom right", "Stats position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = grpDash)
+
+// ═════════════════════════════ Safety and timeframes ═════════════════════════════
+
+if barstate.isfirst and not chart.is_standard
+    runtime.error("Velox Clean Lab requires standard candles/bars. Do not backtest it on Heikin Ashi, Renko, Range, Kagi or other synthetic prices.")
+
+chartSec = timeframe.in_seconds()
+autoHtf = chartSec <= 60 ? "15" : chartSec <= 300 ? "60" : chartSec <= 3600 ? "240" : chartSec <= 14400 ? "D" : "W"
+htfTf = htfMode == "Auto" ? autoHtf : htfManual
+htfUsable = timeframe.in_seconds(htfTf) > chartSec
+
+atr = ta.atr(atrLen)
+
+// ═════════════════════════════ Types ═════════════════════════════
+
+type Zone
+    bool bull
+    float top
+    float bottom
+    int originBar
+    int confirmBar
+    float atrOrigin
+    float baseStrength
+    int strength
+    string status
+    int touches
+    bool inside
+    int touchBar
+    bool traded
+
+// An order block. status: "live" → "breaker" (failed, role flipped) → "dead".
+type Block
+    bool bull
+    float top
+    float bottom
+    int originBar
+    int confirmBar
+    string status
+    int breakerBar
+
+// ═════════════════════════════ Helpers ═════════════════════════════
+
+clamp01(float x) =>
+    math.max(0.0, math.min(1.0, x))
+
+fmt(float x) =>
+    str.tostring(x, format.mintick)
+
+tfName(int sec) =>
+    sec % 604800 == 0 ? "W" : sec % 86400 == 0 ? "D" : sec % 3600 == 0 ? str.tostring(sec / 3600) + "H" : str.tostring(sec / 60) + "m"
+
+currentStrength(Zone z) =>
+    float life = z.status == "fresh" ? 20.0 : z.status == "tested" ? 10.0 : 0.0
+    int(math.round(math.min(100.0, z.baseStrength + life)))
+
+zoneExists(array<Zone> zs, bool bull, int originBar) =>
+    bool found = false
+    if zs.size() > 0
+        for z in zs
+            if z.bull == bull and z.originBar == originBar
+                found := true
+    found
+
+// Demand: the lowest low between the broken swing high and the breaking candle (supply mirrored).
+buildZone(bool bull, int swingBar) =>
+    int fromBar = math.max(swingBar + 1, bar_index - 499)
+    int originBar = fromBar
+    if fromBar <= bar_index
+        for j = fromBar to bar_index
+            int off = bar_index - j
+            int originOff = bar_index - originBar
+            bool moreExtreme = bull ? low[off] < low[originOff] : high[off] > high[originOff]
+            if moreExtreme
+                originBar := j
+    int oOff = bar_index - originBar
+    float originAtr = atr[oOff]
+    float far = bull ? low[oOff] : high[oOff]
+    float near = bull ? math.min(open[oOff], close[oOff]) : math.max(open[oOff], close[oOff])
+    float sign = bull ? 1.0 : -1.0
+    float height = sign * (near - far)
+    if not na(originAtr) and originAtr > 0
+        if height < zoneMinH * originAtr
+            near := far + sign * zoneMinH * originAtr
+        if height > zoneMaxH * originAtr
+            near := far + sign * zoneMaxH * originAtr
+    float top = math.max(near, far)
+    float bottom = math.min(near, far)
+    float displacement = not na(originAtr) and originAtr > 0 ? sign * (close - near) / originAtr : na
+    int elapsed = math.max(0, bar_index - originBar - 1)
+    float dispScore = not na(displacement) ? 40.0 * clamp01(displacement / (2.0 * zoneMinDisp)) : 0.0
+    float speedScore = 20.0 * clamp01(1.0 - float(elapsed) / float(speedZeroBars))
+    float baseStrength = 20.0 + dispScore + speedScore
+    Zone result = na
+    if not na(originAtr) and originAtr > 0 and not na(displacement) and displacement >= zoneMinDisp
+        result := Zone.new(bull, math.round_to_mintick(top), math.round_to_mintick(bottom), originBar, bar_index, originAtr, baseStrength, int(math.round(math.min(100.0, baseStrength + 20.0))), "fresh", 0, false, na, false)
+    result
+
+roomToOpposing(array<Zone> zs, array<Block> bs, bool bull, float entry) =>
+    float room = na
+    if zs.size() > 0
+        for z in zs
+            bool live = z.status == "fresh" or z.status == "tested"
+            if live and z.bull != bull
+                float edge = bull ? z.bottom : z.top
+                float dist = bull ? edge - entry : entry - edge
+                if dist > 0 and (na(room) or dist < room)
+                    room := dist
+    if roomIncludesBlocks and bs.size() > 0
+        for b in bs
+            bool role = b.status == "breaker" ? not b.bull : b.bull
+            if b.status != "dead" and role != bull
+                float edge = bull ? b.bottom : b.top
+                float dist = bull ? edge - entry : entry - edge
+                if dist > 0 and (na(room) or dist < room)
+                    room := dist
+    room
+
+// Order block: the last opposite-close candle at or before the lowest low (highest high) since the broken
+// local swing, kept only if the move away was strong (displacement, strong candles, quick break, not broken through).
+findBlock(bool bull, int swingBar) =>
+    int fromBar = math.max(swingBar + 1, bar_index - 499)
+    int o = fromBar
+    for j = fromBar to bar_index
+        int off = bar_index - j
+        int oOff = bar_index - o
+        if bull ? low[off] < low[oOff] : high[off] > high[oOff]
+            o := j
+    int ob = -1
+    int lim = math.max(fromBar, o - obLookback)
+    for j = o to lim
+        int off = bar_index - j
+        if bull ? close[off] < open[off] : close[off] > open[off]
+            ob := j
+            break
+    Block result = na
+    float a = atr[bar_index - o]
+    if ob >= 0 and bar_index - ob <= obMaxBars and not na(a) and a > 0
+        int bOff = bar_index - ob
+        float top = math.max(open[bOff], close[bOff])
+        float bot = math.min(open[bOff], close[bOff])
+        if top - bot > obMaxH * a
+            if bull
+                top := bot + obMaxH * a
+            else
+                bot := top - obMaxH * a
+        float sign = bull ? 1.0 : -1.0
+        float nearE = bull ? top : bot
+        float farE = bull ? bot : top
+        float disp = sign * (close - nearE) / a
+        bool broken = false
+        int imp = 0
+        if ob < bar_index
+            for j = ob + 1 to bar_index
+                int off = bar_index - j
+                if sign * (close[off] - farE) < 0
+                    broken := true
+                float rng = high[off] - low[off]
+                if (bull ? close[off] > open[off] : close[off] < open[off]) and rng > 0 and math.abs(close[off] - open[off]) / rng >= impulseBody
+                    imp += 1
+        if not broken and disp >= obMinDisp and imp >= minImpulse
+            result := Block.new(bull, math.round_to_mintick(top), math.round_to_mintick(bot), ob, bar_index, "live", na)
+    result
+
+blockExists(array<Block> bs, bool bull, int originBar) =>
+    bool found = false
+    if bs.size() > 0
+        for b in bs
+            if b.bull == bull and b.originBar == originBar
+                found := true
+    found
+
+// Indexes of the n blocks nearest to price with the given role (a breaker's role is flipped).
+nearestBlocks(array<Block> bs, bool role, bool breakers, int wanted) =>
+    array<int> out = array.new<int>()
+    for slot = 1 to wanted
+        int best = -1
+        float bestDist = 1e20
+        if bs.size() > 0
+            for i = 0 to bs.size() - 1
+                Block b = bs.get(i)
+                bool isBrk = b.status == "breaker"
+                bool r = isBrk ? not b.bull : b.bull
+                if b.status != "dead" and isBrk == breakers and r == role and not out.includes(i)
+                    float dist = math.abs(close - (b.top + b.bottom) * 0.5)
+                    if dist < bestDist
+                        best := i
+                        bestDist := dist
+        if best >= 0
+            out.push(best)
+    out
+
+nearestIndexes(array<Zone> zs, bool bull, int wanted) =>
+    array<int> out = array.new<int>()
+    for slot = 1 to wanted
+        int best = -1
+        float bestDist = 1e20
+        if zs.size() > 0
+            for i = 0 to zs.size() - 1
+                Zone z = zs.get(i)
+                bool visible = z.status == "fresh" or z.status == "tested" or (showMitigated and z.status == "mitigated")
+                if visible and z.bull == bull and not out.includes(i)
+                    float mid = (z.top + z.bottom) * 0.5
+                    float dist = math.abs(close - mid)
+                    if dist < bestDist
+                        best := i
+                        bestDist := dist
+        if best >= 0
+            out.push(best)
+    out
+
+htfTrendEngine() =>
+    float a = ta.atr(atrLen)
+    float ph = ta.pivothigh(high, swingLen, swingLen)
+    float pl = ta.pivotlow(low, swingLen, swingLen)
+    var float sh = na
+    var float sl = na
+    var bool shBroken = true
+    var bool slBroken = true
+    var int tr = 0
+    if not na(ph)
+        sh := ph
+        shBroken := false
+    if not na(pl)
+        sl := pl
+        slBroken := false
+    bool up = not shBroken and not na(sh) and not na(a) and close > sh + bosBufATR * a
+    bool down = not slBroken and not na(sl) and not na(a) and close < sl - bosBufATR * a
+    if up and down
+        up := false
+        down := false
+    if up
+        shBroken := true
+        tr := 1
+    if down
+        slBroken := true
+        tr := -1
+    tr
+
+// ═════════════════════════════ Core state ═════════════════════════════
+
+ph = ta.pivothigh(high, swingLen, swingLen)
+pl = ta.pivotlow(low, swingLen, swingLen)
+
+var float swingHigh = na
+var int swingHighBar = na
+var bool swingHighBroken = true
+var float swingLow = na
+var int swingLowBar = na
+var bool swingLowBroken = true
+var int chartTrend = 0
+var array<Zone> zones = array.new<Zone>()
+
+iph = ta.pivothigh(high, obSwingLen, obSwingLen)
+ipl = ta.pivotlow(low, obSwingLen, obSwingLen)
+var float iSwingHigh = na
+var int iSwingHighBar = na
+var bool iSwingHighBroken = true
+var float iSwingLow = na
+var int iSwingLowBar = na
+var bool iSwingLowBroken = true
+var array<Block> blocks = array.new<Block>()
+
+if barstate.isconfirmed
+    if not na(ph)
+        swingHigh := ph
+        swingHighBar := bar_index - swingLen
+        swingHighBroken := false
+    if not na(pl)
+        swingLow := pl
+        swingLowBar := bar_index - swingLen
+        swingLowBroken := false
+
+    bool bullBreak = not swingHighBroken and not na(swingHigh) and not na(atr) and close > swingHigh + bosBufATR * atr
+    bool bearBreak = not swingLowBroken and not na(swingLow) and not na(atr) and close < swingLow - bosBufATR * atr
+
+    if bullBreak and bearBreak
+        bullBreak := false
+        bearBreak := false
+
+    if bullBreak
+        bool choch = chartTrend < 0
+        swingHighBroken := true
+        Zone newZone = buildZone(true, swingHighBar)
+        if not na(newZone) and not zoneExists(zones, true, newZone.originBar)
+            zones.push(newZone)
+        if showStructure
+            line.new(math.max(swingHighBar, bar_index - 3000), swingHigh, bar_index, swingHigh, xloc = xloc.bar_index, color = color.new(color.aqua, 0), style = choch ? line.style_dashed : line.style_solid)
+            label.new(bar_index, swingHigh, choch ? "CHoCH" : "BOS", xloc = xloc.bar_index, style = label.style_label_down, color = color.new(color.black, 100), textcolor = color.aqua, size = size.tiny)
+        chartTrend := 1
+
+    if bearBreak
+        bool choch = chartTrend > 0
+        swingLowBroken := true
+        Zone newZone = buildZone(false, swingLowBar)
+        if not na(newZone) and not zoneExists(zones, false, newZone.originBar)
+            zones.push(newZone)
+        if showStructure
+            line.new(math.max(swingLowBar, bar_index - 3000), swingLow, bar_index, swingLow, xloc = xloc.bar_index, color = color.new(color.red, 0), style = choch ? line.style_dashed : line.style_solid)
+            label.new(bar_index, swingLow, choch ? "CHoCH" : "BOS", xloc = xloc.bar_index, style = label.style_label_up, color = color.new(color.black, 100), textcolor = color.red, size = size.tiny)
+        chartTrend := -1
+
+    if zones.size() > 0
+        for i = zones.size() - 1 to 0
+            Zone z = zones.get(i)
+            if z.confirmBar < bar_index
+                float sign = z.bull ? 1.0 : -1.0
+                float near = z.bull ? z.top : z.bottom
+                float far = z.bull ? z.bottom : z.top
+                float reach = z.bull ? low : high
+                if z.inside and sign * (reach - near) > touchExitATR * z.atrOrigin
+                    z.inside := false
+                if not z.inside and sign * (reach - near) <= 0
+                    z.inside := true
+                    z.touches += 1
+                    z.touchBar := bar_index
+                    if z.status == "fresh"
+                        z.status := "tested"
+                float depth = near - sign * mitigationDepth * (z.top - z.bottom)
+                if (z.status == "fresh" or z.status == "tested") and sign * (reach - depth) <= 0
+                    z.status := "mitigated"
+                float invalidLevel = far - sign * invalidationBufATR * z.atrOrigin
+                if sign * (close - invalidLevel) < 0
+                    z.status := "invalid"
+                z.strength := currentStrength(z)
+            bool tooOldToKeep = bar_index - z.confirmBar > 2000
+            if z.status == "invalid" or tooOldToKeep
+                zones.remove(i)
+
+    while zones.size() > maxZones
+        zones.shift()
+
+    // Order blocks from the local (internal) structure, with the same BOS close buffer.
+    if not na(iph)
+        iSwingHigh := iph
+        iSwingHighBar := bar_index - obSwingLen
+        iSwingHighBroken := false
+    if not na(ipl)
+        iSwingLow := ipl
+        iSwingLowBar := bar_index - obSwingLen
+        iSwingLowBroken := false
+    bool iUp = not iSwingHighBroken and not na(iSwingHigh) and not na(atr) and close > iSwingHigh + bosBufATR * atr
+    bool iDown = not iSwingLowBroken and not na(iSwingLow) and not na(atr) and close < iSwingLow - bosBufATR * atr
+    if iUp and iDown
+        iUp := false
+        iDown := false
+    if iUp
+        iSwingHighBroken := true
+        Block nb = findBlock(true, iSwingHighBar)
+        if not na(nb) and not blockExists(blocks, true, nb.originBar)
+            blocks.push(nb)
+    if iDown
+        iSwingLowBroken := true
+        Block nb = findBlock(false, iSwingLowBar)
+        if not na(nb) and not blockExists(blocks, false, nb.originBar)
+            blocks.push(nb)
+
+    // Block lifecycle: a close through the far edge turns an OB into a breaker; a close back through the
+    // near edge (or the expiry) ends the breaker.
+    if blocks.size() > 0
+        for i = blocks.size() - 1 to 0
+            Block b = blocks.get(i)
+            if b.confirmBar < bar_index
+                float sign = b.bull ? 1.0 : -1.0
+                float nearE = b.bull ? b.top : b.bottom
+                float farE = b.bull ? b.bottom : b.top
+                if b.status == "live" and sign * (close - farE) < 0
+                    b.status := showBb ? "breaker" : "dead"
+                    b.breakerBar := bar_index
+                else if b.status == "breaker" and (sign * (close - nearE) > 0 or bar_index - b.breakerBar > bbLife)
+                    b.status := "dead"
+            if b.status == "dead" or bar_index - b.confirmBar > 2000
+                blocks.remove(i)
+    while blocks.size() > 150
+        blocks.shift()
+
+// Previous CLOSED higher-timeframe candle only ([1] + lookahead_on): no repainting.
+htfTrend = request.security(syminfo.tickerid, htfTf, htfTrendEngine()[1], lookahead = barmerge.lookahead_on)
+
+// ═════════════════════════════ Sessions ═════════════════════════════
+
+inLondon = not na(time(timeframe.period, londonSession, "Europe/London"))
+inNyAm = not na(time(timeframe.period, nyAmSession, "America/New_York"))
+inNyPm = not na(time(timeframe.period, nyPmSession, "America/New_York"))
+inKillzone = inLondon or inNyAm or inNyPm
+sessionOk = not useSessionFilter or chartSec > 3600 or inKillzone
+
+// Outlined session boxes (high-low of each session), last `sesDays` days, 1H charts and below.
+recent = timenow - time <= sesDays * 86400000
+sessionBox(string sess, string tz, string name, color col) =>
+    var box b = na
+    var float hi = na
+    var float lo = na
+    bool inS = showSessionBoxes and chartSec <= 3600 and recent and not na(time(timeframe.period, sess, tz))
+    if inS and not inS[1]
+        hi := high
+        lo := low
+        b := box.new(bar_index, hi, bar_index, lo, xloc = xloc.bar_index, border_color = col, border_width = 1, bgcolor = color(na), text = name, text_color = col, text_size = size.small, text_valign = text.align_top, text_halign = text.align_center)
+    else if inS and not na(b)
+        hi := math.max(hi, high)
+        lo := math.min(lo, low)
+        b.set_top(hi)
+        b.set_bottom(lo)
+        b.set_right(bar_index)
+    inS
+
+boxAsia = sessionBox(asiaSession, "Europe/London", "Asia", asiaCol)
+boxLondon = sessionBox(londonSession, "Europe/London", "London", londonCol)
+boxNyAm = sessionBox(nyAmSession, "America/New_York", "New York AM", nyAmCol)
+boxNyPm = sessionBox(nyPmSession, "America/New_York", "New York PM", nyPmCol)
+
+// ═════════════════════════════ Trade result bookkeeping ═════════════════════════════
+
+var float signalClose = na
+var float signalStop = na
+var float signalTarget = na
+var float plannedRiskPrice = na
+var bool signalBull = false
+var int signalZoneStrength = na
+var int signalZoneAge = na
+var string signalSession = ""
+
+var int statTrades = 0
+var int statWins = 0
+var int statLongs = 0
+var int statShorts = 0
+var float statNetR = 0.0
+var float statWinR = 0.0
+var float statLossR = 0.0
+var float statMfeR = 0.0
+var float statMaeR = 0.0
+var float statGapR = 0.0
+var int statHit1 = 0
+var int statHit15 = 0
+var int statHit2 = 0
+var int statHit25 = 0
+var int statHit3 = 0
+var int statLosers = 0
+var int statLoserReached08 = 0
+var int lossStreak = 0
+var int maxLossStreak = 0
+var float peakNetR = 0.0
+var float maxDrawdownR = 0.0
+
+closedDelta = ta.change(strategy.closedtrades)
+closedNow = closedDelta > 0
+
+if closedNow
+    int t = strategy.closedtrades - 1
+    float entryPx = strategy.closedtrades.entry_price(t)
+    float exitPx = strategy.closedtrades.exit_price(t)
+    float signedSize = strategy.closedtrades.size(t)
+    float side = signedSize > 0 ? 1.0 : -1.0
+    float qtyAbs = math.abs(signedSize)
+    float riskPriceActual = not na(signalStop) ? math.abs(entryPx - signalStop) : na
+    float riskCashActual = not na(riskPriceActual) ? riskPriceActual * qtyAbs * syminfo.pointvalue : na
+    float grossCash = side * (exitPx - entryPx) * qtyAbs * syminfo.pointvalue
+    float fees = strategy.closedtrades.commission(t)
+    float netCash = grossCash - fees
+    float tradeR = not na(riskCashActual) and riskCashActual > 0 ? netCash / riskCashActual : na
+    float mfeR = not na(riskCashActual) and riskCashActual > 0 ? strategy.closedtrades.max_runup(t) / riskCashActual : na
+    float maeR = not na(riskCashActual) and riskCashActual > 0 ? strategy.closedtrades.max_drawdown(t) / riskCashActual : na
+    float gapAdverseR = not na(plannedRiskPrice) and plannedRiskPrice > 0 ? side * (entryPx - signalClose) / plannedRiskPrice : na
+    if not na(tradeR)
+        statTrades += 1
+        statNetR += tradeR
+        statMfeR += nz(mfeR)
+        statMaeR += nz(maeR)
+        statGapR += nz(gapAdverseR)
+        if side > 0
+            statLongs += 1
+        else
+            statShorts += 1
+        if tradeR > 0
+            statWins += 1
+            statWinR += tradeR
+            lossStreak := 0
+        else
+            statLossR += math.abs(tradeR)
+            statLosers += 1
+            lossStreak += 1
+            maxLossStreak := math.max(maxLossStreak, lossStreak)
+        if nz(mfeR) >= 1.0
+            statHit1 += 1
+        if nz(mfeR) >= 1.5
+            statHit15 += 1
+        if nz(mfeR) >= 2.0
+            statHit2 += 1
+        if nz(mfeR) >= 2.5
+            statHit25 += 1
+        if nz(mfeR) >= 3.0
+            statHit3 += 1
+        if tradeR < 0 and nz(mfeR) >= 0.8
+            statLoserReached08 += 1
+        peakNetR := math.max(peakNetR, statNetR)
+        maxDrawdownR := math.max(maxDrawdownR, peakNetR - statNetR)
+    signalClose := na
+    signalStop := na
+    signalTarget := na
+    plannedRiskPrice := na
+    signalZoneStrength := na
+    signalZoneAge := na
+    signalSession := ""
+
+// ═════════════════════════════ Entry selection ═════════════════════════════
+
+inDateRange = time >= testStart and time <= testEnd
+flat = strategy.position_size == 0
+
+if barstate.isconfirmed and inDateRange and flat and not closedNow and sessionOk and not na(atr) and atr > 0
+    Zone best = na
+    float bestStop = na
+    float bestRisk = na
+    float bestScore = na
+    float candleRange = math.max(high - low, syminfo.mintick)
+    float candleBody = math.abs(close - open)
+    float bodyRatio = candleBody / candleRange
+    float closeLoc = (close - low) / candleRange
+    if zones.size() > 0
+        for z in zones
+            float sign = z.bull ? 1.0 : -1.0
+            float near = z.bull ? z.top : z.bottom
+            float far = z.bull ? z.bottom : z.top
+            bool firstTouch = z.status == "tested" and z.touches == 1 and not na(z.touchBar) and bar_index - z.touchBar <= armBars
+            bool ageOk = bar_index - z.confirmBar <= maxZoneAge
+            bool strengthOk = z.strength >= minStrength
+            bool directionOk = sign * (close - near) > 0 and sign * (close - open) > 0
+            bool bodyOk = candleBody >= rejectBodyATR * atr and bodyRatio >= rejectBodyRatio
+            bool locationOk = z.bull ? closeLoc >= rejectCloseLoc : closeLoc <= 1.0 - rejectCloseLoc
+            bool chartTrendOk = not requireChartTrend or chartTrend == int(sign)
+            bool htfTrendOk = not requireHtfTrend or not htfUsable or htfTrend == int(sign)
+            float stopPx = far - sign * slBufATR * atr
+            float riskPx = sign * (close - stopPx)
+            bool riskOk = riskPx >= minRiskATR * atr and riskPx <= maxRiskATR * atr
+            float room = roomToOpposing(zones, blocks, z.bull, close)
+            bool roomOk = na(room) or (riskPx > 0 and room / riskPx >= minRoomR)
+            float score = float(z.strength)
+            if firstTouch and ageOk and strengthOk and directionOk and bodyOk and locationOk and chartTrendOk and htfTrendOk and riskOk and roomOk and not z.traded
+                if na(bestScore) or score > bestScore
+                    best := z
+                    bestStop := stopPx
+                    bestRisk := riskPx
+                    bestScore := score
+    if not na(best)
+        best.traded := true
+        float sign = best.bull ? 1.0 : -1.0
+        float stopPx = math.round_to_mintick(bestStop)
+        float targetPx = math.round_to_mintick(close + sign * targetR * bestRisk)
+        float pointValue = math.max(syminfo.pointvalue, 0.0000001)
+        float qty = riskCash / (bestRisk * pointValue)
+        signalClose := close
+        signalStop := stopPx
+        signalTarget := targetPx
+        plannedRiskPrice := bestRisk
+        signalBull := best.bull
+        signalZoneStrength := best.strength
+        signalZoneAge := bar_index - best.confirmBar
+        signalSession := inLondon ? "LONDON" : inNyAm ? "NY AM" : inNyPm ? "NY PM" : "OUTSIDE"
+        if best.bull
+            strategy.entry("L", strategy.long, qty = qty)
+            strategy.exit("LX", "L", stop = stopPx, limit = targetPx)
+            alert("Velox Clean LONG | entry ~" + fmt(close) + " | SL " + fmt(stopPx) + " | TP " + fmt(targetPx) + " | STR " + str.tostring(best.strength) + " | " + signalSession, alert.freq_once_per_bar_close)
+        else
+            strategy.entry("S", strategy.short, qty = qty)
+            strategy.exit("SX", "S", stop = stopPx, limit = targetPx)
+            alert("Velox Clean SHORT | entry ~" + fmt(close) + " | SL " + fmt(stopPx) + " | TP " + fmt(targetPx) + " | STR " + str.tostring(best.strength) + " | " + signalSession, alert.freq_once_per_bar_close)
+
+if strategy.position_size > 0 and not na(signalStop) and not na(signalTarget)
+    strategy.exit("LX", "L", stop = signalStop, limit = signalTarget)
+
+if strategy.position_size < 0 and not na(signalStop) and not na(signalTarget)
+    strategy.exit("SX", "S", stop = signalStop, limit = signalTarget)
+
+if barstate.isconfirmed and time > testEnd and strategy.position_size != 0
+    strategy.close_all(comment = "End of test")
+
+// ═════════════════════════════ Trade drawings: green TP box, blue SL box, entry / TP / SL labels ═════════════════════════════
+
+var array<box> tradeBoxes = array.new<box>()
+var array<label> tradeLabels = array.new<label>()
+var box curTpBox = na
+var box curSlBox = na
+var label curEntryLab = na
+var label curTpLab = na
+var label curSlLab = na
+
+newSignal = not na(signalClose) and na(signalClose[1])
+
+if showTradePlan and newSignal
+    curTpBox := box.new(bar_index, math.max(signalClose, signalTarget), bar_index + 1, math.min(signalClose, signalTarget), xloc = xloc.bar_index, border_color = color.new(color.lime, 20), bgcolor = color.new(color.lime, 82))
+    curSlBox := box.new(bar_index, math.max(signalClose, signalStop), bar_index + 1, math.min(signalClose, signalStop), xloc = xloc.bar_index, border_color = color.new(color.blue, 20), bgcolor = color.new(color.blue, 84))
+    curEntryLab := label.new(bar_index + 1, signalClose, (signalBull ? "BUY ENTRY " : "SELL ENTRY ") + fmt(signalClose), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.gray, 20), textcolor = color.white, size = size.tiny)
+    curTpLab := label.new(bar_index + 1, signalTarget, "TP " + fmt(signalTarget), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.lime, 30), textcolor = color.white, size = size.tiny)
+    curSlLab := label.new(bar_index + 1, signalStop, "SL " + fmt(signalStop), xloc = xloc.bar_index, style = label.style_label_left, color = color.new(color.blue, 30), textcolor = color.white, size = size.tiny)
+    tradeBoxes.push(curTpBox)
+    tradeBoxes.push(curSlBox)
+    tradeLabels.push(curEntryLab)
+    tradeLabels.push(curTpLab)
+    tradeLabels.push(curSlLab)
+    while tradeBoxes.size() > 2 * keepTrades
+        box.delete(tradeBoxes.shift())
+    while tradeLabels.size() > 3 * keepTrades
+        label.delete(tradeLabels.shift())
+
+// Extend the current trade to the present candle until it closes (the signal values reset on the exit candle).
+if showTradePlan and not na(signalClose) and not na(curTpBox)
+    curTpBox.set_right(bar_index + 1)
+    curSlBox.set_right(bar_index + 1)
+    curEntryLab.set_x(bar_index + 1)
+    curTpLab.set_x(bar_index + 1)
+    curSlLab.set_x(bar_index + 1)
+
+enteredDelta = ta.change(strategy.opentrades)
+enteredNow = enteredDelta > 0
+
+if showTradePlan and enteredNow and strategy.position_size != 0
+    int entryBar = strategy.opentrades.entry_bar_index(strategy.opentrades - 1)
+    float actualEntry = strategy.position_avg_price
+    label.new(entryBar, actualEntry, "FILL " + fmt(actualEntry), xloc = xloc.bar_index, style = strategy.position_size > 0 ? label.style_label_up : label.style_label_down, color = color.new(color.yellow, 70), textcolor = color.yellow, size = size.tiny)
+
+// ═════════════════════════════ Zone drawings ═════════════════════════════
+
+var array<box> drawnZones = array.new<box>()
+
+// A strategy does not run on the still-forming candle, so also draw on the last closed one.
+if barstate.islast or barstate.islastconfirmedhistory
+    for b in drawnZones
+        b.delete()
+    drawnZones.clear()
+    for bull in array.from(true, false)
+        array<int> ids = nearestIndexes(zones, bull, showPerSide)
+        if ids.size() > 0
+            for idx in ids
+                Zone z = zones.get(idx)
+                color c = bull ? color.aqua : color.red
+                int fade = z.status == "fresh" ? 78 : z.status == "tested" ? 84 : 91
+                string txt = (bull ? "DEMAND" : "SUPPLY") + " · " + str.tostring(z.strength) + " · " + z.status + " · T" + str.tostring(z.touches)
+                box zb = box.new(math.max(z.originBar, bar_index - 3000), z.top, bar_index, z.bottom, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(c, 25), bgcolor = color.new(c, fade), text = txt, text_color = c, text_size = size.tiny, text_halign = text.align_center)
+                drawnZones.push(zb)
+    if showOb
+        for bull in array.from(true, false)
+            array<int> obIds = nearestBlocks(blocks, bull, false, maxObSide)
+            if obIds.size() > 0
+                for idx in obIds
+                    Block b = blocks.get(idx)
+                    color c = bull ? obBullCol : obBearCol
+                    drawnZones.push(box.new(math.max(b.originBar, bar_index - 3000), b.top, bar_index + 10, b.bottom, xloc = xloc.bar_index, border_color = c, bgcolor = color.new(c, 82), text = "OB", text_color = c, text_size = size.tiny, text_halign = text.align_left))
+            if showBb
+                array<int> bbIds = nearestBlocks(blocks, bull, true, maxBbSide)
+                if bbIds.size() > 0
+                    for idx in bbIds
+                        Block b = blocks.get(idx)
+                        drawnZones.push(box.new(math.max(b.originBar, bar_index - 3000), b.top, bar_index + 10, b.bottom, xloc = xloc.bar_index, border_color = bbCol, border_style = line.style_dashed, bgcolor = color.new(bbCol, 86), text = "BB", text_color = bbCol, text_size = size.tiny, text_halign = text.align_left))
+
+// ═════════════════════════════ Velox box ═════════════════════════════
+
+// Next timeframe up: 1m → 5, 5m → 15, 15m → H1, H1 → H4, H4 → D, D → W, W → M.
+nextTf(int sec) =>
+    sec < 300 ? "5" : sec < 900 ? "15" : sec < 3600 ? "60" : sec < 14400 ? "240" : sec < 86400 ? "D" : sec < 604800 ? "W" : "M"
+
+tfLabel(int sec) =>
+    sec < 3600 ? str.tostring(int(sec / 60)) : sec < 86400 ? "H" + str.tostring(int(sec / 3600)) : sec < 604800 ? "D" : sec < 2419200 ? "W" : "M"
+
+tf2 = nextTf(chartSec)
+tf3 = nextTf(timeframe.in_seconds(tf2))
+// Structure trend on the next two timeframes, from their last CLOSED candle only.
+trend2 = request.security(syminfo.tickerid, tf2, htfTrendEngine()[1], lookahead = barmerge.lookahead_on)
+trend3 = request.security(syminfo.tickerid, tf3, htfTrendEngine()[1], lookahead = barmerge.lookahead_on)
+
+[diPlus, diMinus, adxNow] = ta.dmi(14, 14)
+volAvg = ta.sma(volume, 20)
+volRatio = not na(volAvg) and volAvg > 0 ? volume / volAvg : na
+
+colBull = #4caf50
+colBear = #2962ff
+colFlat = #5d606b
+colKey = #363a45
+
+dashTextSize = dashSize == "Tiny" ? size.tiny : dashSize == "Small" ? size.small : size.normal
+posOf(string p) =>
+    p == "Top right" ? position.top_right : p == "Bottom right" ? position.bottom_right : p == "Top left" ? position.top_left : position.bottom_left
+
+var table vbox = table.new(posOf(dashPos), 2, 8, border_color = color.new(#0b0f14, 0), border_width = 1)
+
+boxRow(int r, string k, string v, color kBg, color vBg) =>
+    vbox.cell(0, r, k, text_color = color.white, bgcolor = kBg, text_size = dashTextSize)
+    vbox.cell(1, r, v, text_color = color.white, bgcolor = vBg, text_size = dashTextSize)
+
+arrowRow(int r, string tfName_, int tr) =>
+    boxRow(r, tfName_, tr > 0 ? "▲" : tr < 0 ? "▼" : "–", colKey, tr > 0 ? colBull : tr < 0 ? colBear : colFlat)
+
+if showDashboard and (barstate.islast or barstate.islastconfirmedhistory)
+    string trendTxt = chartTrend > 0 ? "Bullish" : chartTrend < 0 ? "Bearish" : "Neutral"
+    color trendBg = chartTrend > 0 ? colBull : chartTrend < 0 ? colBear : colFlat
+    string strTxt = na(adxNow) ? "–" : adxNow >= 25 ? "Strong" : adxNow >= 18 ? "Moderate" : "Weak"
+    color strBg = not na(adxNow) and adxNow >= 25 ? colBull : colFlat
+    string volTxt = na(volRatio) ? "–" : volRatio >= 1.5 ? "High" : volRatio <= 0.7 ? "Low" : "Normal"
+    color volBg = not na(volRatio) and volRatio >= 1.5 ? colBull : colFlat
+    string sesTxt = inLondon ? "London" : inNyAm ? "NY AM" : inNyPm ? "NY PM" : "Off-session"
+    color sesBg = inKillzone ? colBear : colFlat
+    boxRow(0, "VELOX", "IMPACT", colFlat, colBear)
+    boxRow(1, "Trend", trendTxt, colKey, trendBg)
+    boxRow(2, "Strength", strTxt, colKey, strBg)
+    boxRow(3, "Volume", volTxt, colKey, volBg)
+    boxRow(4, "Session", sesTxt, colKey, sesBg)
+    arrowRow(5, tfLabel(chartSec), chartTrend)
+    arrowRow(6, tfLabel(timeframe.in_seconds(tf2)), nz(trend2))
+    arrowRow(7, tfLabel(timeframe.in_seconds(tf3)), nz(trend3))
+
+// ═════════════════════════════ Backtest stats (optional, separate table) ═════════════════════════════
+
+var table dash = table.new(posOf(statsPos), 2, 14, bgcolor = color.new(color.black, 30), frame_color = color.new(color.gray, 75), frame_width = 1)
+
+dashRow(int r, string k, string v, color c) =>
+    dash.cell(0, r, k, text_color = color.silver, text_size = size.tiny, text_halign = text.align_left)
+    dash.cell(1, r, v, text_color = c, text_size = size.tiny, text_halign = text.align_right)
+
+pct(int n, int d) =>
+    d > 0 ? str.tostring(100.0 * float(n) / float(d), "#") + "%" : "–"
+
+if showStats and (barstate.islast or barstate.islastconfirmedhistory)
+    float pf = statLossR > 0 ? statWinR / statLossR : na
+    float avgR = statTrades > 0 ? statNetR / float(statTrades) : na
+    dashRow(0, "Backtest", tfName(chartSec), color.white)
+    dashRow(1, "Trades", str.tostring(statTrades), color.white)
+    dashRow(2, "Win %", pct(statWins, statTrades), color.white)
+    dashRow(3, "Net R", str.tostring(statNetR, "#.##"), statNetR >= 0 ? color.lime : color.red)
+    dashRow(4, "PF", na(pf) ? "–" : str.tostring(pf, "#.##"), color.white)
+    dashRow(5, "Avg R", na(avgR) ? "–" : str.tostring(avgR, "#.##"), color.white)
+    dashRow(6, "Max DD (R)", str.tostring(maxDrawdownR, "#.##"), color.white)
+    dashRow(7, "Loss streak", str.tostring(maxLossStreak), color.white)
+    dashRow(8, "Avg MFE / MAE", statTrades > 0 ? str.tostring(statMfeR / statTrades, "#.##") + " / " + str.tostring(statMaeR / statTrades, "#.##") : "–", color.white)
+    dashRow(9, "Hit 1R / 2R / 3R", pct(statHit1, statTrades) + " / " + pct(statHit2, statTrades) + " / " + pct(statHit3, statTrades), color.white)
+    dashRow(10, "Losers hit +0.8R", pct(statLoserReached08, statLosers), color.white)
+    dashRow(11, "Long / Short", str.tostring(statLongs) + " / " + str.tostring(statShorts), color.white)
+    dashRow(12, "Avg fill gap (R)", statTrades > 0 ? str.tostring(statGapR / statTrades, "#.##") : "–", color.white)
+    dashRow(13, "Filter HTF " + tfName(timeframe.in_seconds(htfTf)), not htfUsable ? "off" : htfTrend > 0 ? "BULL" : htfTrend < 0 ? "BEAR" : "–", htfTrend > 0 ? color.lime : htfTrend < 0 ? color.red : color.silver)
