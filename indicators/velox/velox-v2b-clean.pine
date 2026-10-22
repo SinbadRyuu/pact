@@ -604,7 +604,7 @@ if showDashboard and (barstate.islast or barstate.islastconfirmedhistory)
     color volBg = not na(volRatio) and volRatio >= 1.5 ? colBull : colFlat
     string sesTxt = inLondon ? "London" : inNyAm ? "NY AM" : inNyPm ? "NY PM" : "Off-session"
     color sesBg = inKillzone ? colBear : colFlat
-    boxRow(0, "VELOX", "PACT", colFlat, colBear)
+    boxRow(0, "VELOX", "IMPACT", colFlat, colBear)
     boxRow(1, "Trend", trendTxt, colKey, trendBg)
     boxRow(2, "Strength", strTxt, colKey, strBg)
     boxRow(3, "Volume", volTxt, colKey, volBg)
