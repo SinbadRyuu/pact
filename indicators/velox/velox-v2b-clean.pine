@@ -12,7 +12,8 @@ strategy("Velox V2B.2 — Clean Supply & Demand Lab", "Velox V2B.2", overlay = t
 //  - Zone ATR is read from the real candle history (V2B.1 read the history of a function argument, which
 //    only advances when the function is called, so the zone's ATR could come from the wrong candle).
 //  - Trade boxes stop at the exit instead of extending right forever.
-//  - Compact dashboard (size, position and detail are inputs).
+//  - Velox box: trend, strength (ADX), volume, session, and the trend on this and the next two timeframes.
+//    Backtest stats are a separate, optional table.
 
 // Explicitly reserve enough history for time conversions in bar-index drawings.
 max_bars_back(time, 3500)
@@ -72,11 +73,12 @@ showStructure = input.bool(true, "Show BOS / CHoCH", group = grpVisual)
 showTradePlan = input.bool(true, "Show entry / TP / SL boxes", group = grpVisual)
 keepTrades = input.int(10, "Trades drawn", minval = 1, maxval = 50, group = grpVisual)
 
-grpDash = "Dashboard"
-showDashboard = input.bool(true, "Show dashboard", group = grpDash)
-dashDetail = input.bool(false, "Detailed (all research rows)", group = grpDash, tooltip = "Off: trades, win %, net R and profit factor only.")
-dashSize = input.string("Tiny", "Text size", options = ["Tiny", "Small", "Normal"], group = grpDash)
+grpDash = "Velox box"
+showDashboard = input.bool(true, "Show Velox box", group = grpDash, tooltip = "Trend, strength, volume, session and the trend on this and the next two timeframes.")
+dashSize = input.string("Small", "Text size", options = ["Tiny", "Small", "Normal"], group = grpDash)
 dashPos = input.string("Top right", "Position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = grpDash)
+showStats = input.bool(false, "Show backtest stats (separate table)", group = grpDash)
+statsPos = input.string("Bottom right", "Stats position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = grpDash)
 
 // ═════════════════════════════ Safety and timeframes ═════════════════════════════
 
@@ -556,34 +558,86 @@ if barstate.islast or barstate.islastconfirmedhistory
                 box zb = box.new(math.max(z.originBar, bar_index - 3000), z.top, bar_index, z.bottom, xloc = xloc.bar_index, extend = extend.right, border_color = color.new(c, 25), bgcolor = color.new(c, fade), text = txt, text_color = c, text_size = size.tiny, text_halign = text.align_center)
                 drawnZones.push(zb)
 
-// ═════════════════════════════ Dashboard (compact by default) ═════════════════════════════
+// ═════════════════════════════ Velox box ═════════════════════════════
+
+// Next timeframe up: 1m → 5, 5m → 15, 15m → H1, H1 → H4, H4 → D, D → W, W → M.
+nextTf(int sec) =>
+    sec < 300 ? "5" : sec < 900 ? "15" : sec < 3600 ? "60" : sec < 14400 ? "240" : sec < 86400 ? "D" : sec < 604800 ? "W" : "M"
+
+tfLabel(int sec) =>
+    sec < 3600 ? str.tostring(int(sec / 60)) : sec < 86400 ? "H" + str.tostring(int(sec / 3600)) : sec < 604800 ? "D" : sec < 2419200 ? "W" : "M"
+
+tf2 = nextTf(chartSec)
+tf3 = nextTf(timeframe.in_seconds(tf2))
+// Structure trend on the next two timeframes, from their last CLOSED candle only.
+trend2 = request.security(syminfo.tickerid, tf2, htfTrendEngine()[1], lookahead = barmerge.lookahead_on)
+trend3 = request.security(syminfo.tickerid, tf3, htfTrendEngine()[1], lookahead = barmerge.lookahead_on)
+
+[diPlus, diMinus, adxNow] = ta.dmi(14, 14)
+volAvg = ta.sma(volume, 20)
+volRatio = not na(volAvg) and volAvg > 0 ? volume / volAvg : na
+
+colBull = #4caf50
+colBear = #2962ff
+colFlat = #5d606b
+colKey = #363a45
 
 dashTextSize = dashSize == "Tiny" ? size.tiny : dashSize == "Small" ? size.small : size.normal
-dashPosV = dashPos == "Top right" ? position.top_right : dashPos == "Bottom right" ? position.bottom_right : dashPos == "Top left" ? position.top_left : position.bottom_left
-var table dash = table.new(dashPosV, 2, 14, bgcolor = color.new(color.black, 30), frame_color = color.new(color.gray, 75), frame_width = 1)
+posOf(string p) =>
+    p == "Top right" ? position.top_right : p == "Bottom right" ? position.bottom_right : p == "Top left" ? position.top_left : position.bottom_left
+
+var table vbox = table.new(posOf(dashPos), 2, 8, border_color = color.new(#0b0f14, 0), border_width = 1)
+
+boxRow(int r, string k, string v, color kBg, color vBg) =>
+    vbox.cell(0, r, k, text_color = color.white, bgcolor = kBg, text_size = dashTextSize)
+    vbox.cell(1, r, v, text_color = color.white, bgcolor = vBg, text_size = dashTextSize)
+
+arrowRow(int r, string tfName_, int tr) =>
+    boxRow(r, tfName_, tr > 0 ? "▲" : tr < 0 ? "▼" : "–", colKey, tr > 0 ? colBull : tr < 0 ? colBear : colFlat)
+
+if showDashboard and (barstate.islast or barstate.islastconfirmedhistory)
+    string trendTxt = chartTrend > 0 ? "Bullish" : chartTrend < 0 ? "Bearish" : "Neutral"
+    color trendBg = chartTrend > 0 ? colBull : chartTrend < 0 ? colBear : colFlat
+    string strTxt = na(adxNow) ? "–" : adxNow >= 25 ? "Strong" : adxNow >= 18 ? "Moderate" : "Weak"
+    color strBg = not na(adxNow) and adxNow >= 25 ? colBull : colFlat
+    string volTxt = na(volRatio) ? "–" : volRatio >= 1.5 ? "High" : volRatio <= 0.7 ? "Low" : "Normal"
+    color volBg = not na(volRatio) and volRatio >= 1.5 ? colBull : colFlat
+    string sesTxt = inLondon ? "London" : inNyAm ? "NY AM" : inNyPm ? "NY PM" : "Off-session"
+    color sesBg = inKillzone ? colBear : colFlat
+    boxRow(0, "VELOX", "PACT", colFlat, colBear)
+    boxRow(1, "Trend", trendTxt, colKey, trendBg)
+    boxRow(2, "Strength", strTxt, colKey, strBg)
+    boxRow(3, "Volume", volTxt, colKey, volBg)
+    boxRow(4, "Session", sesTxt, colKey, sesBg)
+    arrowRow(5, tfLabel(chartSec), chartTrend)
+    arrowRow(6, tfLabel(timeframe.in_seconds(tf2)), nz(trend2))
+    arrowRow(7, tfLabel(timeframe.in_seconds(tf3)), nz(trend3))
+
+// ═════════════════════════════ Backtest stats (optional, separate table) ═════════════════════════════
+
+var table dash = table.new(posOf(statsPos), 2, 14, bgcolor = color.new(color.black, 30), frame_color = color.new(color.gray, 75), frame_width = 1)
 
 dashRow(int r, string k, string v, color c) =>
-    dash.cell(0, r, k, text_color = color.silver, text_size = dashTextSize, text_halign = text.align_left)
-    dash.cell(1, r, v, text_color = c, text_size = dashTextSize, text_halign = text.align_right)
+    dash.cell(0, r, k, text_color = color.silver, text_size = size.tiny, text_halign = text.align_left)
+    dash.cell(1, r, v, text_color = c, text_size = size.tiny, text_halign = text.align_right)
 
 pct(int n, int d) =>
     d > 0 ? str.tostring(100.0 * float(n) / float(d), "#") + "%" : "–"
 
-if showDashboard and (barstate.islast or barstate.islastconfirmedhistory)
+if showStats and (barstate.islast or barstate.islastconfirmedhistory)
     float pf = statLossR > 0 ? statWinR / statLossR : na
     float avgR = statTrades > 0 ? statNetR / float(statTrades) : na
-    dashRow(0, "VELOX", tfName(chartSec), color.white)
+    dashRow(0, "Backtest", tfName(chartSec), color.white)
     dashRow(1, "Trades", str.tostring(statTrades), color.white)
     dashRow(2, "Win %", pct(statWins, statTrades), color.white)
     dashRow(3, "Net R", str.tostring(statNetR, "#.##"), statNetR >= 0 ? color.lime : color.red)
     dashRow(4, "PF", na(pf) ? "–" : str.tostring(pf, "#.##"), color.white)
-    if dashDetail
-        dashRow(5, "Avg R", na(avgR) ? "–" : str.tostring(avgR, "#.##"), color.white)
-        dashRow(6, "Max DD (R)", str.tostring(maxDrawdownR, "#.##"), color.white)
-        dashRow(7, "Loss streak", str.tostring(maxLossStreak), color.white)
-        dashRow(8, "Avg MFE / MAE", statTrades > 0 ? str.tostring(statMfeR / statTrades, "#.##") + " / " + str.tostring(statMaeR / statTrades, "#.##") : "–", color.white)
-        dashRow(9, "Hit 1R / 2R / 3R", pct(statHit1, statTrades) + " / " + pct(statHit2, statTrades) + " / " + pct(statHit3, statTrades), color.white)
-        dashRow(10, "Losers hit +0.8R", pct(statLoserReached08, statLosers), color.white)
-        dashRow(11, "Long / Short", str.tostring(statLongs) + " / " + str.tostring(statShorts), color.white)
-        dashRow(12, "Avg fill gap (R)", statTrades > 0 ? str.tostring(statGapR / statTrades, "#.##") : "–", color.white)
-        dashRow(13, "HTF " + tfName(timeframe.in_seconds(htfTf)), not htfUsable ? "off" : htfTrend > 0 ? "BULL" : htfTrend < 0 ? "BEAR" : "–", htfTrend > 0 ? color.lime : htfTrend < 0 ? color.red : color.silver)
+    dashRow(5, "Avg R", na(avgR) ? "–" : str.tostring(avgR, "#.##"), color.white)
+    dashRow(6, "Max DD (R)", str.tostring(maxDrawdownR, "#.##"), color.white)
+    dashRow(7, "Loss streak", str.tostring(maxLossStreak), color.white)
+    dashRow(8, "Avg MFE / MAE", statTrades > 0 ? str.tostring(statMfeR / statTrades, "#.##") + " / " + str.tostring(statMaeR / statTrades, "#.##") : "–", color.white)
+    dashRow(9, "Hit 1R / 2R / 3R", pct(statHit1, statTrades) + " / " + pct(statHit2, statTrades) + " / " + pct(statHit3, statTrades), color.white)
+    dashRow(10, "Losers hit +0.8R", pct(statLoserReached08, statLosers), color.white)
+    dashRow(11, "Long / Short", str.tostring(statLongs) + " / " + str.tostring(statShorts), color.white)
+    dashRow(12, "Avg fill gap (R)", statTrades > 0 ? str.tostring(statGapR / statTrades, "#.##") : "–", color.white)
+    dashRow(13, "Filter HTF " + tfName(timeframe.in_seconds(htfTf)), not htfUsable ? "off" : htfTrend > 0 ? "BULL" : htfTrend < 0 ? "BEAR" : "–", htfTrend > 0 ? color.lime : htfTrend < 0 ? color.red : color.silver)
