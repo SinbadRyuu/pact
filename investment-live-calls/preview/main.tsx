@@ -1,6 +1,6 @@
 // Preview harness: the real LiveCallsPage inside a copy of the Impact Investment shell, with an in-memory server.
 // Not shipped. Build: see README ("Preview").
-import { StrictMode, useEffect, useState } from "react";
+import { StrictMode, useEffect, useState, useSyncExternalStore } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { configureLiveCalls } from "../src/adapters";
@@ -13,7 +13,25 @@ const params = new URLSearchParams(location.search);
 const FROZEN = Date.parse(params.get("now") ?? "2026-10-25T13:52:00Z");
 const realStart = Date.now();
 const clock = () => FROZEN + (Date.now() - realStart);
-const staff = params.get("staff") !== "0";
+
+// Preview controls: theme and staff/member view. The published preview cannot read the URL, so these are buttons.
+const prefs = { staff: params.get("staff") !== "0", theme: params.get("theme") ?? "future" };
+const listeners = new Set<() => void>();
+const subscribe = (fn: () => void) => (listeners.add(fn), () => listeners.delete(fn));
+function setPref<K extends keyof typeof prefs>(k: K, v: (typeof prefs)[K]) {
+  Object.assign(prefs, { [k]: v });
+  applyTheme();
+  listeners.forEach((fn) => fn());
+}
+const themeRoot = document.getElementById("theme-root") ?? document.documentElement;
+const themeAttr = themeRoot.dataset.themeAttr ?? "data-theme";
+function applyTheme() {
+  themeRoot.setAttribute(themeAttr, prefs.theme);
+  themeRoot.setAttribute(themeAttr === "data-theme" ? "data-scheme" : "data-vt-scheme", prefs.theme === "future" || prefs.theme === "dark" ? "dark" : "light");
+}
+applyTheme();
+const useStaff = () => useSyncExternalStore(subscribe, () => prefs.staff);
+const useTheme = () => useSyncExternalStore(subscribe, () => prefs.theme);
 
 interface Series extends NewCall {
   id: string;
@@ -75,7 +93,7 @@ configureLiveCalls({
     add(c);
     return {} as T;
   },
-  useCanManage: () => staff,
+  useCanManage: useStaff,
   useNow: function useNow() {
     const [n, set] = useState(clock);
     useEffect(() => {
@@ -105,6 +123,27 @@ const menu = [
   { label: "Live", links: [["Live calls", "M12 22a10 10 0 100-20 10 10 0 000 20zM12 6v6l4 2"]] },
   { label: "Support", links: [["Ask the team", "M12 22a10 10 0 100-20 10 10 0 000 20zM9.1 9a3 3 0 015.8 1c0 2-3 3-3 3M12 17h.01"], ["Book a call", "M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"]] },
 ];
+
+function PreviewBar() {
+  const staff = useStaff();
+  const theme = useTheme();
+  return (
+    <div className="pv-bar" role="group" aria-label="Preview settings">
+      <span className="pv-bar__label">Preview</span>
+      <div className="pv-seg">
+        {(["future", "light"] as const).map((t) => (
+          <button key={t} type="button" aria-pressed={theme === t} onClick={() => setPref("theme", t)}>
+            {t === "future" ? "Future theme" : "Light theme"}
+          </button>
+        ))}
+      </div>
+      <div className="pv-seg">
+        <button type="button" aria-pressed={staff} onClick={() => setPref("staff", true)}>Staff view</button>
+        <button type="button" aria-pressed={!staff} onClick={() => setPref("staff", false)}>Member view</button>
+      </div>
+    </div>
+  );
+}
 
 function Shell() {
   return (
@@ -145,6 +184,7 @@ function Shell() {
           <LiveCallsPage />
         </main>
       </div>
+      <PreviewBar />
     </div>
   );
 }

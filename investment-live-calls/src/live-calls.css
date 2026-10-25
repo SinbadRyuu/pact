@@ -4,13 +4,19 @@
 .lc {
   --lc-violet: var(--palette-ultraviolet, #8b6cff);
   --lc-magenta: var(--palette-magenta, #ff4fd8);
-  --lc-mint: var(--palette-mint, #3dffb2);
+  --lc-mint: var(--color-positive, var(--palette-mint, #3dffb2));
   --lc-cream: #f6eedc;
   --lc-text: var(--color-text, #e8f3ff);
   --lc-muted: var(--color-text-muted, #8fa3c8);
   --lc-line: color-mix(in srgb, var(--color-border, #1d2a52) 75%, transparent);
   --lc-card: color-mix(in srgb, var(--color-surface, #0a0e22) 82%, #2a2f55 18%);
   --lc-card-hover: color-mix(in srgb, var(--color-surface, #0a0e22) 70%, #3a3f6e 30%);
+  /* Light themes (baseline, light) get their own surfaces; the dark ones keep the lifted navy above. */
+  --lc-card: light-dark(color-mix(in srgb, var(--color-surface, #fff) 94%, var(--lc-violet) 6%), color-mix(in srgb, var(--color-surface, #0a0e22) 82%, #2a2f55 18%));
+  --lc-card-hover: light-dark(color-mix(in srgb, var(--color-surface, #fff) 88%, var(--lc-violet) 12%), color-mix(in srgb, var(--color-surface, #0a0e22) 70%, #3a3f6e 30%));
+  /* Accent colours for text on the page's own background, readable in light and dark themes. */
+  --lc-violet-text: color-mix(in srgb, var(--lc-violet) 62%, var(--lc-text));
+  --lc-magenta-text: color-mix(in srgb, var(--lc-magenta) 72%, var(--lc-text));
   --lc-chip: color-mix(in srgb, var(--lc-muted) 14%, transparent);
   --lc-glow: 0 0 0 1px color-mix(in srgb, var(--lc-violet) 30%, transparent), 0 0 26px -2px color-mix(in srgb, var(--lc-violet) 55%, transparent),
     0 22px 60px -24px color-mix(in srgb, var(--lc-violet) 70%, transparent);
@@ -308,7 +314,7 @@
   box-shadow: var(--lc-glow);
 }
 .lc-day.is-today .lc-day__name {
-  color: color-mix(in srgb, var(--lc-violet) 55%, white);
+  color: var(--lc-violet-text);
 }
 
 /* ---- Lower grid -------------------------------------------------------------------------------------------- */
@@ -332,6 +338,15 @@
 
 /* Up next */
 .lc-next {
+  /* The card sits on a dark photo in every theme, so its text and badges use dark-theme values. */
+  --lc-text: #e8f3ff;
+  --lc-muted: #a9b5d6;
+  --lc-mint: #3dffb2;
+  --color-positive-wash: #062419;
+  --color-accent-wash: #0a2235;
+  --color-border-strong: #2c3d70;
+  color-scheme: dark;
+  color: var(--lc-text);
   position: relative;
   isolation: isolate;
   overflow: hidden;
@@ -445,7 +460,7 @@
   color: var(--lc-mint);
 }
 .lc-stat dd.is-live {
-  text-shadow: 0 0 14px rgb(61 255 178 / 0.65);
+  text-shadow: 0 0 14px color-mix(in srgb, var(--lc-mint) 65%, transparent);
 }
 .lc-stat dt {
   font-size: 0.8125rem;
@@ -505,7 +520,7 @@
 }
 .lc-row.is-today .lc-row__date {
   background: color-mix(in srgb, var(--lc-violet) 28%, transparent);
-  color: #fff;
+  color: var(--lc-text);
 }
 .lc-row__btn {
   display: grid;
@@ -530,7 +545,7 @@
   background: var(--lc-chip);
   font-family: var(--font-mono, "IBM Plex Mono", ui-monospace, monospace);
   font-size: 0.95rem;
-  color: #d9ddf2;
+  color: var(--lc-text);
   font-variant-numeric: tabular-nums;
 }
 .lc-row__name {
@@ -549,7 +564,7 @@
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--lc-violet) 45%, white);
+  color: var(--lc-violet-text);
 }
 .lc-row__count {
   align-self: end;
@@ -587,7 +602,7 @@
   background: none;
   font-size: 0.8125rem;
   font-weight: 650;
-  color: var(--lc-magenta);
+  color: var(--lc-magenta-text);
   cursor: pointer;
 }
 .lc-row__add:hover {
@@ -696,7 +711,7 @@
 .lc-badge--neutral {
   border-color: var(--color-border-strong, #2c3d70);
   background: color-mix(in srgb, var(--lc-muted) 12%, transparent);
-  color: #d3d9ef;
+  color: var(--lc-text);
 }
 .lc-badge--accent {
   background: var(--color-accent-wash, #0a2235);
@@ -820,7 +835,7 @@
 }
 .lc-dialog .lc-eyebrow {
   margin: 0 0 0.2rem;
-  color: var(--palette-magenta, #ff4fd8);
+  color: var(--lc-magenta-text, #ff4fd8);
 }
 .lc-form {
   display: grid;

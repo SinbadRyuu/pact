@@ -10,6 +10,12 @@
     <style>
       #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; padding: 10px 16px; border-radius: 10px; background: #062419; color: #3dffb2; border: 1px solid #3dffb266; font: 600 14px/1.2 var(--font-sans); transition: .25s; pointer-events: none; z-index: 99 }
       #toast[data-on="1"] { opacity: 1; transform: translate(-50%, 0) }
+      .pv-bar { position: fixed; z-index: 60; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 14px; background: #0b0d22ee; border: 1px solid #8b6cff88; box-shadow: 0 12px 40px -12px #000; font: 600 12px/1 "Instrument Sans Variable", system-ui, sans-serif; color: #e8f3ff; backdrop-filter: blur(8px) }
+      .pv-bar__label { padding: 0 4px; color: #ff4fd8; text-transform: uppercase; letter-spacing: .08em; font-size: 11px }
+      .pv-seg { display: flex; border: 1px solid #ffffff26; border-radius: 9px; overflow: hidden }
+      .pv-seg button { all: unset; cursor: pointer; padding: 7px 10px; color: #b9c3dd }
+      .pv-seg button[aria-pressed="true"] { background: #8b6cff; color: #fff }
+      .pv-seg button:focus-visible { outline: 2px solid #3ee8ff; outline-offset: -2px }
     </style>
   </head>
   <body>
