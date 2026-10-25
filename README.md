@@ -12,6 +12,12 @@ VT Investment as its own portal on vtimpact.com, next to Impact Travel and Impac
 
 ➡️ See [`investment-portal/README.md`](investment-portal/README.md) for install steps.
 
+## Live calls page
+
+The weekly lineup for `/investment/calls` on vtimpact.com: week switching, a Monday to Sunday day strip, up next, this week's counts, the week agenda and Add call for staff.
+
+➡️ See [`investment-live-calls/README.md`](investment-live-calls/README.md) for install steps.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.

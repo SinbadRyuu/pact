@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en-GB" data-theme="future" data-scheme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Live calls · VT Impact (preview)</title>
+    <link rel="stylesheet" href="assets/site.css" />
+    <link rel="stylesheet" href="assets/investment.css" />
+    <link rel="stylesheet" href="dist/main.css" />
+    <style>
+      #toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; padding: 10px 16px; border-radius: 10px; background: #062419; color: #3dffb2; border: 1px solid #3dffb266; font: 600 14px/1.2 var(--font-sans); transition: .25s; pointer-events: none; z-index: 99 }
+      #toast[data-on="1"] { opacity: 1; transform: translate(-50%, 0) }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="dist/main.js"></script>
+  </body>
+</html>
