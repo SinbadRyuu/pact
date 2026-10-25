@@ -1,6 +1,6 @@
 // Storage contract for the chat. `PgChatStore` is the production implementation; `MemoryChatStore` backs tests and the demo.
 
-import type { GroupColor, PostingPolicy } from "../../shared/limits";
+import type { GroupColor, GroupPhotoType, PostingPolicy } from "../../shared/limits";
 
 export interface GroupRow {
   id: string;
@@ -12,6 +12,7 @@ export interface GroupRow {
   postingPolicy: PostingPolicy;
   sortOrder: number;
   pinnedMessageId: string | null;
+  photoVersion: string | null;
   lastRev: number;
   createdBy: string | null;
   createdAt: Date;
@@ -44,6 +45,12 @@ export interface NewGroup {
 
 export type GroupUpdate = Partial<Pick<GroupRow, "name" | "description" | "emoji" | "color" | "postingPolicy" | "archivedAt">>;
 
+export interface GroupPhoto {
+  contentType: GroupPhotoType;
+  bytes: Uint8Array;
+  version: string;
+}
+
 export interface NewMessage {
   groupId: string;
   authorId: string;
@@ -70,6 +77,9 @@ export interface ChatStore {
   /** Sets sort_order to follow the order of `ids`. */
   reorderGroups(ids: readonly string[]): Promise<void>;
   setPinned(groupId: string, messageId: string | null): Promise<void>;
+  /** Stores or replaces the group's picture (null removes it) and sets the group's photoVersion to match. */
+  setGroupPhoto(groupId: string, photo: GroupPhoto | null, updatedBy: string): Promise<GroupRow | null>;
+  getGroupPhoto(groupId: string): Promise<GroupPhoto | null>;
 
   /**
    * Inserts a message and takes the group's next revision. Returns null when the group is archived or gone.

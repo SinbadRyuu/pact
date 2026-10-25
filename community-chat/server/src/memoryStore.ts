@@ -1,12 +1,24 @@
 // An in-memory ChatStore with the same behaviour as PgChatStore. Used by tests and the browser demo.
 
 import { DEFAULT_GROUPS } from "../../shared/defaultGroups";
-import { compareIds, type ChatStore, type GroupRow, type GroupUpdate, type MessageRow, type MessageUpdate, type NewGroup, type NewMessage, type ReadState } from "./store";
+import {
+  compareIds,
+  type ChatStore,
+  type GroupPhoto,
+  type GroupRow,
+  type GroupUpdate,
+  type MessageRow,
+  type MessageUpdate,
+  type NewGroup,
+  type NewMessage,
+  type ReadState,
+} from "./store";
 
 export class MemoryChatStore implements ChatStore {
   private groups = new Map<string, GroupRow>();
   private messages = new Map<string, MessageRow>();
   private reads = new Map<string, string>();
+  private photos = new Map<string, GroupPhoto>();
   private nextMessageId = 1;
   private nextGroupId = 1;
   private readonly now: () => Date;
@@ -34,6 +46,7 @@ export class MemoryChatStore implements ChatStore {
       postingPolicy: g.postingPolicy,
       sortOrder: maxSort + 10,
       pinnedMessageId: null,
+      photoVersion: null,
       lastRev: 0,
       createdBy: g.createdBy,
       createdAt: this.now(),
@@ -86,6 +99,20 @@ export class MemoryChatStore implements ChatStore {
   async setPinned(groupId: string, messageId: string | null) {
     const g = this.groups.get(groupId);
     if (g) g.pinnedMessageId = messageId;
+  }
+
+  async setGroupPhoto(groupId: string, photo: GroupPhoto | null) {
+    const g = this.groups.get(groupId);
+    if (!g) return null;
+    if (photo) this.photos.set(groupId, { ...photo, bytes: photo.bytes.slice() });
+    else this.photos.delete(groupId);
+    g.photoVersion = photo?.version ?? null;
+    return { ...g };
+  }
+
+  async getGroupPhoto(groupId: string) {
+    const p = this.photos.get(groupId);
+    return p ? { ...p, bytes: p.bytes.slice() } : null;
   }
 
   async insertMessage(m: NewMessage) {

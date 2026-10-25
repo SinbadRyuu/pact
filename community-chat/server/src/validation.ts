@@ -1,6 +1,16 @@
 // Parses untrusted request bodies into clean values, collecting one message per bad field.
 
-import { CHAT_LIMITS, GROUP_COLORS, POSTING_POLICIES, RESERVED_SLUGS, SLUG_PATTERN, slugify, type GroupColor, type PostingPolicy } from "../../shared/limits";
+import {
+  CHAT_LIMITS,
+  GROUP_COLORS,
+  POSTING_POLICIES,
+  RESERVED_SLUGS,
+  SLUG_PATTERN,
+  slugify,
+  type GroupColor,
+  type GroupPhotoType,
+  type PostingPolicy,
+} from "../../shared/limits";
 import type { GroupInput, GroupPatch, SendMessageInput } from "../../shared/types";
 import { invalid } from "./errors";
 
@@ -187,3 +197,35 @@ export function parseRev(value: string): number {
   if (!/^\d{1,15}$/.test(value) || !Number.isSafeInteger(n)) throw invalid({ since: "Not a valid cursor." });
   return n;
 }
+
+const DATA_URL = /^data:(image\/(?:webp|jpeg|png));base64,([A-Za-z0-9+/]+={0,2})$/;
+
+/** What the file really is, from its first bytes. The type the upload claims is not trusted. */
+function sniffImage(bytes: Uint8Array): GroupPhotoType | null {
+  const at = (i: number, ...expected: number[]) => expected.every((b, j) => bytes[i + j] === b);
+  if (at(0, 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a)) return "image/png";
+  if (at(0, 0xff, 0xd8, 0xff)) return "image/jpeg";
+  if (at(0, 0x52, 0x49, 0x46, 0x46) && at(8, 0x57, 0x45, 0x42, 0x50)) return "image/webp";
+  return null;
+}
+
+/** Accepts `{ image: "data:image/webp;base64,..." }` holding a WebP, JPEG or PNG within the size limit. */
+export function parseGroupPhoto(body: unknown): { contentType: GroupPhotoType; bytes: Uint8Array } {
+  const input = record(body);
+  const match = typeof input.image === "string" ? DATA_URL.exec(input.image) : null;
+  if (!match) throw invalid({ image: "Upload a JPG, PNG or WebP picture." });
+  // A base64 string four characters long holds three bytes; reject oversized uploads before decoding them.
+  if ((match[2]!.length / 4) * 3 > CHAT_LIMITS.groupPhotoMaxBytes + 3) throw invalid({ image: tooBig() });
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(match[2]!), (c) => c.charCodeAt(0));
+  } catch {
+    throw invalid({ image: "The picture could not be read. Try another file." });
+  }
+  if (bytes.length > CHAT_LIMITS.groupPhotoMaxBytes) throw invalid({ image: tooBig() });
+  const actual = sniffImage(bytes);
+  if (!actual || actual !== match[1]) throw invalid({ image: "This file isn’t a valid JPG, PNG or WebP picture." });
+  return { contentType: actual, bytes };
+}
+
+const tooBig = () => `Pictures can be up to ${Math.round(CHAT_LIMITS.groupPhotoMaxBytes / 1000)} KB.`;

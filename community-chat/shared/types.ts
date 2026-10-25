@@ -47,6 +47,8 @@ export interface ChatGroup {
   description: string;
   emoji: string;
   color: GroupColor;
+  /** Changes whenever an admin uploads a new picture. Null when the group uses its emoji. */
+  photoVersion: string | null;
   postingPolicy: PostingPolicy;
   sortOrder: number;
   archived: boolean;
@@ -98,6 +100,11 @@ export interface GroupPatch {
   color?: GroupColor;
   postingPolicy?: PostingPolicy;
   archived?: boolean;
+}
+
+export interface GroupPhotoInput {
+  /** A data URL: `data:image/webp;base64,...` (or image/jpeg, image/png). */
+  image: string;
 }
 
 export interface SendMessageInput {

@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS community_chat_groups (
   posting_policy    text NOT NULL DEFAULT 'everyone' CHECK (posting_policy IN ('everyone', 'admins')),
   sort_order        integer NOT NULL DEFAULT 0,
   pinned_message_id bigint,
+  -- Set when an admin uploads a picture; the picture itself is in community_chat_group_photos.
+  photo_version     text,
   last_rev          bigint NOT NULL DEFAULT 0,
   created_by        text,
   created_at        timestamptz NOT NULL DEFAULT now(),
@@ -70,6 +72,17 @@ CREATE TABLE IF NOT EXISTS community_chat_read_state (
   last_read_message_id bigint NOT NULL DEFAULT 0,
   updated_at           timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, group_id)
+);
+
+-- Group pictures, uploaded by admins. Small (the browser resizes them to 384px), so they live in the database
+-- and need no file storage service.
+CREATE TABLE IF NOT EXISTS community_chat_group_photos (
+  group_id     uuid PRIMARY KEY REFERENCES community_chat_groups (id) ON DELETE CASCADE,
+  content_type text NOT NULL CHECK (content_type IN ('image/webp', 'image/jpeg', 'image/png')),
+  bytes        bytea NOT NULL CHECK (octet_length(bytes) <= 200000),
+  version      text NOT NULL,
+  updated_by   text,
+  updated_at   timestamptz NOT NULL DEFAULT now()
 );
 
 -- Starting groups. Keep in sync with shared/defaultGroups.ts.

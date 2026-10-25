@@ -18,6 +18,7 @@ Admins add more from the app, without code changes.
 | Reply, edit own messages (48 hours), delete own messages | ✓ | ✓ | ✓ |
 | Delete anyone's message, pin messages | | ✓ | ✓ |
 | Create, rename, reorder and archive groups | | | ✓ |
+| Upload or remove a group's picture | | | ✓ |
 | Post in an "Only admins" group | | | ✓ |
 | Message another member privately | ✗ | ✗ | ✗ |
 
@@ -29,7 +30,8 @@ The server enforces every rule; hiding a button is never the only check. There a
 - **Messages.** Bubbles grouped by sender, with day labels that stay on screen while you scroll, an "Unread messages" line, replies with a quote you can tap to jump to, an "edited" label, links you can tap, and a pinned message bar.
 - **Composer.** Enter sends and Shift+Enter starts a new line (on phones Enter starts a new line and the button sends). Up arrow edits your last message and Escape cancels. Drafts are kept per group.
 - **Live updates.** New messages, edits, deletions and pins show up within about 3 seconds. Messages appear as soon as you send them; if one fails, you can retry or discard it. A message is never posted twice, even if a retry overlaps the first attempt.
-- **Group settings (admins).** Name, link, description, emoji icon, colour, who can send messages ("Everyone" or "Only admins"), position in the list, and archive or restore.
+- **Group settings (admins).** Picture, name, link, description, emoji icon, colour, who can send messages ("Everyone" or "Only admins"), position in the list, and archive or restore.
+- **Group pictures (admins).** Upload any JPG, PNG, WebP or phone photo. The browser crops it to a square and shrinks it to 384×384 pixels (usually 5 to 40 KB) before sending, so uploads are quick. The server accepts only real PNG, JPEG or WebP files up to 200 KB, checked from the file's contents rather than its name; SVG is never accepted. Pictures are stored in the database, so there's no file storage service to set up. Without a picture, a group shows its emoji.
 - **Safety.** A rate limit of 6 messages per 10 seconds applies to members but not staff. Message length is capped at 2,000 characters on both the server and the database. Text is rendered as plain text, so there is no HTML injection. Only `http` and `https` links become clickable, and they open with `noopener nofollow ugc`.
 
 ## What's in this folder
@@ -80,8 +82,8 @@ const chat = new CommunityChatService({
 
 const handle = createChatHttpHandler(chat);
 
-// Express-style:
-app.use("/api/v1/community/chat", express.json(), toNodeMiddleware(handle, {
+// Express-style. The JSON limit leaves room for a group picture (up to 200 KB, sent as base64).
+app.use("/api/v1/community/chat", express.json({ limit: "300kb" }), toNodeMiddleware(handle, {
   getViewer: (req) => req.session?.user
     ? { id: String(req.session.user.id), roles: req.session.user.roles, permissions: req.session.user.permissions }
     : null,
@@ -109,11 +111,11 @@ Copy `web/` and `shared/` into the web app. Then, in the router, point the `/app
 - The chat fills the page height. If it's too tall or too short inside the app shell, set `--cc-offset` on `.cc` (it defaults to the app bar height plus the page padding).
 - The public `/community` page still describes the old post board. Update its copy to mention the group chats.
 
-No new libraries are needed: it uses React, React Router and TanStack Query, which the app already has. No Content Security Policy changes are needed either: requests are same-origin, and there is no inline script and no WebSocket.
+No new libraries are needed: it uses React, React Router and TanStack Query, which the app already has. No Content Security Policy changes are needed either: requests and group pictures are same-origin (`/api/v1/community/chat/groups/:slug/photo`), and there is no inline script and no WebSocket. If the app's `img-src` doesn't include `'self'`, add it. The upload preview also uses a `data:` image, so add `data:` to `img-src` if it isn't there already.
 
 ## Adding a group
 
-**In the app (admins):** Community → **New group**. Pick a name, an icon, a colour, and whether everyone or only admins can send messages. The ⚙ button in a group's header edits, reorders or archives it.
+**In the app (admins):** Community → **New group**. Pick a name, a picture or an icon, a colour, and whether everyone or only admins can send messages. The ⚙ button in a group's header edits a group: change its picture, rename, reorder or archive it.
 
 **In SQL:**
 

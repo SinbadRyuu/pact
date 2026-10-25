@@ -39,6 +39,10 @@ export function setActingAs(id: string) {
 }
 export const actingAs = () => current;
 
+// The demo has no server to load pictures from, so it keeps each uploaded picture's data URL by group and version.
+const photoUrls = new Map<string, string>();
+export const demoPhotoUrl = (slug: string, version: string) => photoUrls.get(`${slug}:${version}`) ?? "";
+
 /** Sends requests straight to the handler, with a little latency so loading states are visible. */
 export const demoTransport: ChatTransport = async ({ method, path, body, signal }) => {
   await new Promise((r) => setTimeout(r, 120 + Math.random() * 120));
@@ -51,6 +55,10 @@ export const demoTransport: ChatTransport = async ({ method, path, body, signal 
     body: body === undefined ? undefined : JSON.parse(JSON.stringify(body)),
     viewer: viewerOf(current),
   });
+  const photo = /^\/groups\/([a-z0-9-]+)\/photo$/.exec(url.pathname);
+  if (photo && method === "PUT" && res.status === 200) {
+    photoUrls.set(`${photo[1]}:${(res.body as { photoVersion: string }).photoVersion}`, (body as { image: string }).image);
+  }
   if (res.status >= 400) {
     const e = (res.body as { error: { code: string; message: string; fields?: Record<string, string>; retryAfterSeconds?: number } }).error;
     throw new ChatApiError(res.status, e.code, e.message, e.fields ?? {}, e.retryAfterSeconds);
@@ -92,6 +100,11 @@ async function seed() {
   await say(at(1, 7, 50), "jordan", "beginners-signals", "A candle close above it on the timeframe in the signal. A touch alone isn’t enough.");
   seedTime = null;
 
+  // General Chat starts with an uploaded picture, to show what one looks like.
+  const image = sampleLogo();
+  const group = await service.setGroupPhoto(person("vtimpact"), "general-chat", { image });
+  photoUrls.set(`general-chat:${group.photoVersion}`, image);
+
   // Sam has read everything up to yesterday, so today's messages show as unread.
   const sam = person("sam");
   for (const slug of ["general-chat", "results", "beginners-signals"]) {
@@ -99,6 +112,36 @@ async function seed() {
     const readUpTo = [...page.messages].reverse().find((m) => new Date(m.createdAt) < at(0, 0, 0));
     if (readUpTo) await service.markRead(sam, slug, readUpTo.id);
   }
+}
+
+/** A VT-style chevron on navy, standing in for a picture an admin uploaded. */
+function sampleLogo() {
+  const size = 384;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d")!;
+  const bg = ctx.createLinearGradient(0, 0, size, size);
+  bg.addColorStop(0, "#0a0e22");
+  bg.addColorStop(1, "#1d1446");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, size, size);
+  const mark = ctx.createLinearGradient(84, 112, 300, 292);
+  mark.addColorStop(0, "#8b6cff");
+  mark.addColorStop(0.5, "#ff4fd8");
+  mark.addColorStop(1, "#3ee8ff");
+  ctx.fillStyle = mark;
+  ctx.beginPath();
+  ctx.moveTo(84, 112);
+  ctx.lineTo(146, 112);
+  ctx.lineTo(192, 228);
+  ctx.lineTo(238, 112);
+  ctx.lineTo(300, 112);
+  ctx.lineTo(214, 292);
+  ctx.lineTo(170, 292);
+  ctx.closePath();
+  ctx.fill();
+  return canvas.toDataURL("image/png");
 }
 
 export const ready = seed();

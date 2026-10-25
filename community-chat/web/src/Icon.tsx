@@ -22,6 +22,7 @@ const PATHS = {
   check: "M5 12l5 5L20 7",
   clock: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0-13v5l3 2",
   users: "M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 7.5M22 21a7 7 0 0 0-4-6.3",
+  image: "M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15.5 9.5v.01",
 } as const;
 
 export type IconName = keyof typeof PATHS;

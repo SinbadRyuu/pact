@@ -142,6 +142,20 @@ export function describeStoreContract(name: string, makeStore: () => Promise<Cha
       expect(await store.countRecentMessages("u1", new Date(Date.now() + 60_000))).toBe(0);
     });
 
+    it("stores, replaces and removes a group picture with a matching version", async () => {
+      expect((await store.getGroupById(generalId))!.photoVersion).toBeNull();
+      const bytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+      const row = await store.setGroupPhoto(generalId, { contentType: "image/png", bytes, version: "v1" }, "admin-1");
+      expect(row?.photoVersion).toBe("v1");
+      expect(await store.getGroupPhoto(generalId)).toEqual({ contentType: "image/png", bytes, version: "v1" });
+      await store.setGroupPhoto(generalId, { contentType: "image/webp", bytes: new Uint8Array([9]), version: "v2" }, "admin-1");
+      expect((await store.getGroupPhoto(generalId))?.version).toBe("v2");
+      expect((await store.listGroups({ includeArchived: false }))[0]!.photoVersion).toBe("v2");
+      const removed = await store.setGroupPhoto(generalId, null, "admin-1");
+      expect(removed?.photoVersion).toBeNull();
+      expect(await store.getGroupPhoto(generalId)).toBeNull();
+    });
+
     it("pins and unpins", async () => {
       const m = (await send("u1", "rules"))!.row;
       await store.setPinned(generalId, m.id);

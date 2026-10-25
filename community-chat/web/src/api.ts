@@ -26,22 +26,39 @@ export class ChatApiError extends Error {
 
 const TIMEOUT_MS = 15_000;
 type TokenSource = () => string | null | undefined;
-const config: { basePath: string; getCsrfToken: TokenSource | null; sessionCsrfToken: TokenSource; transport: ChatTransport | null } = {
+type PhotoUrl = (slug: string, version: string) => string;
+const config: {
+  basePath: string;
+  getCsrfToken: TokenSource | null;
+  sessionCsrfToken: TokenSource;
+  transport: ChatTransport | null;
+  groupPhotoUrl: PhotoUrl | null;
+} = {
   basePath: "/api/v1/community/chat",
   getCsrfToken: null,
   sessionCsrfToken: () => null,
   transport: null,
+  groupPhotoUrl: null,
 };
 
 /**
  * Point the chat at the app's API. Every option is optional:
  * - `getCsrfToken` returns the session's CSRF token (by default the page reads it from the `["session"]` query).
  * - `transport` replaces fetch entirely, e.g. to reuse the app's own API client.
+ * - `groupPhotoUrl` changes where group pictures load from (by default the API's /groups/:slug/photo).
  */
-export function configureCommunityChat(options: { basePath?: string; getCsrfToken?: TokenSource; transport?: ChatTransport }) {
+export function configureCommunityChat(options: { basePath?: string; getCsrfToken?: TokenSource; transport?: ChatTransport; groupPhotoUrl?: PhotoUrl }) {
   if (options.basePath) config.basePath = options.basePath.replace(/\/+$/, "");
   if (options.getCsrfToken) config.getCsrfToken = options.getCsrfToken;
   if (options.transport) config.transport = options.transport;
+  if (options.groupPhotoUrl) config.groupPhotoUrl = options.groupPhotoUrl;
+}
+
+/** The picture's URL includes its version, so a new upload is fetched straight away and old ones cache for good. */
+export function groupPhotoUrl(slug: string, version: string) {
+  return config.groupPhotoUrl
+    ? config.groupPhotoUrl(slug, version)
+    : `${config.basePath}/groups/${encodeURIComponent(slug)}/photo?v=${encodeURIComponent(version)}`;
 }
 
 /** Used by the page to read the token from the app's session query when no `getCsrfToken` was configured. */
@@ -105,6 +122,8 @@ export const chatApi = {
   createGroup: (input: GroupInput) => request<ChatGroup>("POST", "/groups", input),
   updateGroup: (slug: string, patch: GroupPatch) => request<ChatGroup>("PATCH", g(slug), patch),
   reorderGroups: (slugs: string[]) => request<void>("PUT", "/groups/order", { slugs }),
+  setGroupPhoto: (slug: string, image: string) => request<ChatGroup>("PUT", `${g(slug)}/photo`, { image }),
+  removeGroupPhoto: (slug: string) => request<ChatGroup>("DELETE", `${g(slug)}/photo`),
   messages: (slug: string, query: { before?: string; since?: number; limit?: number }, signal?: AbortSignal) => {
     const params = new URLSearchParams();
     if (query.before !== undefined) params.set("before", query.before);

@@ -5,6 +5,9 @@
 //   POST   /groups                      create a group                 (admins)
 //   PUT    /groups/order                reorder groups                 (admins)
 //   PATCH  /groups/:slug                edit, archive or restore       (admins)
+//   GET    /groups/:slug/photo          the group's picture (image bytes)
+//   PUT    /groups/:slug/photo          { image: "data:image/webp;base64,..." } (admins)
+//   DELETE /groups/:slug/photo          remove the picture             (admins)
 //   GET    /groups/:slug/messages       ?before=<id> | ?since=<cursor>, &limit=
 //   POST   /groups/:slug/messages       send a message
 //   PUT    /groups/:slug/pin            { messageId | null }           (admins, moderators)
@@ -30,6 +33,7 @@ export interface ChatHttpRequest {
 
 export interface ChatHttpResponse {
   status: number;
+  /** JSON, or raw bytes (a group picture) sent as they are with the response's own content-type. */
   body?: unknown;
   headers?: Record<string, string>;
 }
@@ -45,6 +49,28 @@ export function createChatHttpHandler(service: CommunityChatService) {
     { method: "POST", pattern: route("/groups"), handle: async (v, _, r) => ({ status: 201, body: await service.createGroup(v, r.body) }) },
     { method: "PUT", pattern: route("/groups/order"), handle: async (v, _, r) => noContent(await service.reorderGroups(v, r.body)) },
     { method: "PATCH", pattern: route(`/groups/${SLUG}`), handle: async (v, [slug], r) => ok(await service.updateGroup(v, slug!, r.body)) },
+    {
+      method: "GET",
+      pattern: route(`/groups/${SLUG}/photo`),
+      handle: async (v, [slug], r) => {
+        const photo = await service.getGroupPhoto(v, slug!);
+        // The URL carries the version, so a matching request can be cached for good; anything else is revalidated.
+        const current = r.query.v === photo.version;
+        return {
+          status: 200,
+          body: photo.bytes,
+          headers: {
+            "content-type": photo.contentType,
+            "cache-control": current ? "private, max-age=31536000, immutable" : "private, no-cache",
+            etag: `"${photo.version}"`,
+            "x-content-type-options": "nosniff",
+            "content-security-policy": "default-src 'none'",
+          },
+        };
+      },
+    },
+    { method: "PUT", pattern: route(`/groups/${SLUG}/photo`), handle: async (v, [slug], r) => ok(await service.setGroupPhoto(v, slug!, r.body)) },
+    { method: "DELETE", pattern: route(`/groups/${SLUG}/photo`), handle: async (v, [slug]) => ok(await service.removeGroupPhoto(v, slug!)) },
     {
       method: "GET",
       pattern: route(`/groups/${SLUG}/messages`),
@@ -151,6 +177,7 @@ export function toFetchHandler(handle: ChatRequestHandler, options: { mountPath:
 function toResponse(res: ChatHttpResponse): Response {
   const headers = new Headers({ "cache-control": "no-store", ...res.headers });
   if (res.status === 204 || res.body === undefined) return new Response(null, { status: res.status, headers });
+  if (res.body instanceof Uint8Array) return new Response(new Uint8Array(res.body), { status: res.status, headers });
   headers.set("content-type", "application/json; charset=utf-8");
   return new Response(JSON.stringify(res.body), { status: res.status, headers });
 }
@@ -169,7 +196,7 @@ interface NodeLikeResponse {
   header?(name: string, value: string): unknown;
   json?(body: unknown): unknown;
   send?(body?: unknown): unknown;
-  end?(): unknown;
+  end?(chunk?: Uint8Array): unknown;
 }
 
 /**
@@ -191,6 +218,11 @@ export function toNodeMiddleware(handle: ChatRequestHandler, options: { getViewe
       if (out.status === 204 || out.body === undefined) {
         if (res.end) res.end();
         else res.send?.();
+      } else if (out.body instanceof Uint8Array) {
+        // A Buffer, so Express and Fastify send the bytes as they are instead of serializing them.
+        const bytes = Buffer.from(out.body.buffer, out.body.byteOffset, out.body.byteLength);
+        if (res.end) res.end(bytes);
+        else res.send?.(bytes);
       } else if (res.json) res.json(out.body);
       else res.send?.(out.body);
     } catch (error) {

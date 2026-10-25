@@ -245,6 +245,59 @@ describe("CommunityChatService", () => {
     });
   });
 
+  describe("group pictures", () => {
+    // A real 1x1 PNG.
+    const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    const png = `data:image/png;base64,${PNG}`;
+
+    it("lets admins upload, replace and remove a group's picture", async () => {
+      const first = await service.setGroupPhoto(admin, "results", { image: png });
+      expect(first.photoVersion).toMatch(/^[0-9a-f]{12}$/);
+      const photo = await service.getGroupPhoto(alice, "results");
+      expect(photo.contentType).toBe("image/png");
+      expect(photo.bytes.slice(0, 4)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+      expect((await service.listGroups(alice)).groups.find((g) => g.slug === "results")!.photoVersion).toBe(first.photoVersion);
+
+      const second = await service.setGroupPhoto(admin, "results", { image: png });
+      expect(second.photoVersion).not.toBe(first.photoVersion);
+
+      expect((await service.removeGroupPhoto(admin, "results")).photoVersion).toBeNull();
+      await rejects(service.getGroupPhoto(alice, "results"), 404);
+    });
+
+    it("does not let members or moderators change pictures", async () => {
+      for (const viewer of [alice, moderator]) {
+        await rejects(service.setGroupPhoto(viewer, "results", { image: png }), 403, "admins_only");
+        await rejects(service.removeGroupPhoto(viewer, "results"), 403, "admins_only");
+      }
+    });
+
+    it("accepts only real PNG, JPEG or WebP files within the size limit", async () => {
+      const b64 = (bytes: number[]) => btoa(String.fromCharCode(...bytes));
+      // Claims PNG but is a JPEG.
+      await rejects(service.setGroupPhoto(admin, "results", { image: `data:image/png;base64,${b64([0xff, 0xd8, 0xff, 0xe0])}` }), 422);
+      // SVG can carry script, so it is never accepted.
+      await rejects(service.setGroupPhoto(admin, "results", { image: `data:image/svg+xml;base64,${btoa("<svg onload=alert(1)>")}` }), 422);
+      await rejects(service.setGroupPhoto(admin, "results", { image: "https://example.com/cat.png" }), 422);
+      await rejects(service.setGroupPhoto(admin, "results", { image: "data:image/png;base64,!!!" }), 422);
+      const big = new Uint8Array(CHAT_LIMITS.groupPhotoMaxBytes + 10);
+      big.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+      let binary = "";
+      for (const byte of big) binary += String.fromCharCode(byte);
+      const e = await rejects(service.setGroupPhoto(admin, "results", { image: `data:image/png;base64,${btoa(binary)}` }), 422);
+      expect(e.fields!.image).toMatch(/up to 200 KB/);
+      const jpeg = await service.setGroupPhoto(admin, "results", { image: `data:image/jpeg;base64,${b64([0xff, 0xd8, 0xff, 0xe0, 0, 16])}` });
+      expect(jpeg.photoVersion).not.toBeNull();
+    });
+
+    it("hides an archived group's picture from members", async () => {
+      await service.setGroupPhoto(admin, "results", { image: png });
+      await service.updateGroup(admin, "results", { archived: true });
+      await rejects(service.getGroupPhoto(alice, "results"), 404);
+      expect((await service.getGroupPhoto(admin, "results")).contentType).toBe("image/png");
+    });
+  });
+
   describe("pins and unread counts", () => {
     it("lets staff pin, and unpins deleted messages", async () => {
       const m = (await service.sendMessage(admin, "general-chat", { body: "Read the rules" })).message;

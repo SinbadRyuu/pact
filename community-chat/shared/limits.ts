@@ -23,7 +23,15 @@ export const CHAT_LIMITS = {
   /** Without a read marker, only messages this recent count as unread. */
   unreadLookbackDays: 7,
   unreadCap: 99,
+  /** Group pictures: the browser crops and resizes to this many pixels square before uploading. */
+  groupPhotoPixels: 384,
+  /** The largest picture the server accepts, after decoding. */
+  groupPhotoMaxBytes: 200_000,
 } as const;
+
+/** Image types a group picture can be. SVG is excluded because it can carry script. */
+export const GROUP_PHOTO_TYPES = ["image/webp", "image/jpeg", "image/png"] as const;
+export type GroupPhotoType = (typeof GROUP_PHOTO_TYPES)[number];
 
 /** Paths under /app/community that a group slug must not take. */
 export const RESERVED_SLUGS: readonly string[] = ["new", "posts", "members", "manage", "settings", "edit", "admin", "groups", "messages", "order"];

@@ -71,6 +71,33 @@ describe("chat HTTP handler", () => {
     expect(last).toMatchObject({ status: 429, headers: { "retry-after": "10" } });
   });
 
+  it("serves group pictures as image bytes, cached by version, and only admins can change them", async () => {
+    const image = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+    expect((await call("PUT", "/groups/results/photo", member, { image })).status).toBe(403);
+    const put = await call("PUT", "/groups/results/photo", admin, { image });
+    expect(put.status).toBe(200);
+    const version = (put.body as { photoVersion: string }).photoVersion;
+
+    const current = await call("GET", "/groups/results/photo", member, undefined, { v: version });
+    expect(current.status).toBe(200);
+    expect(current.body).toBeInstanceOf(Uint8Array);
+    expect(current.headers).toMatchObject({
+      "content-type": "image/png",
+      "cache-control": "private, max-age=31536000, immutable",
+      "x-content-type-options": "nosniff",
+    });
+    const stale = await call("GET", "/groups/results/photo", member, undefined, { v: "old" });
+    expect(stale.headers!["cache-control"]).toBe("private, no-cache");
+
+    const fetchHandler = toFetchHandler(handle, { mountPath: "/api/v1/community/chat", getViewer: () => member });
+    const res = await fetchHandler(new Request(`https://example.test/api/v1/community/chat/groups/results/photo?v=${version}`));
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(new Uint8Array(await res.arrayBuffer()).slice(0, 4)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+
+    expect((await call("DELETE", "/groups/results/photo", admin)).status).toBe(200);
+    expect((await call("GET", "/groups/results/photo", member)).status).toBe(404);
+  });
+
   it("works through the fetch adapter", async () => {
     const fetchHandler = toFetchHandler(handle, { mountPath: "/api/v1/community/chat", getViewer: () => member });
     const res = await fetchHandler(

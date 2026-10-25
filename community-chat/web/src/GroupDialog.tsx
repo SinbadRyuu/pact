@@ -1,16 +1,20 @@
-// Admin form for creating and editing groups: name, link, description, icon, colour, who can post,
+// Admin form for creating and editing groups: picture, name, link, description, icon, colour, who can post,
 // position in the list, and archive or restore.
 
-import { useState, type CSSProperties, type FormEvent, type ReactElement } from "react";
+import { useState, type ChangeEvent, type CSSProperties, type FormEvent, type ReactElement } from "react";
 import { CHAT_LIMITS, GROUP_COLORS, slugify, type GroupColor, type PostingPolicy } from "../../shared/limits";
 import type { ChatGroup } from "../../shared/types";
 import { GroupAvatar } from "./Avatar";
-import { ChatApiError, chatApi, errorMessage } from "./api";
+import { ChatApiError, chatApi, errorMessage, groupPhotoUrl } from "./api";
 import { Dialog } from "./Dialog";
 import { Icon } from "./Icon";
 import { GROUP_COLOR_LABELS, GROUP_COLOR_VALUES } from "./format";
+import { PhotoError, prepareGroupPhoto } from "./photo";
 
 const EMOJI_CHOICES = ["💬", "🏆", "📈", "📊", "🎓", "📣", "💡", "🧠", "🪙", "🌍", "🔔", "⚡"];
+
+/** What happens to the group's picture when the form is saved. */
+type PhotoChange = { kind: "keep" } | { kind: "new"; dataUrl: string } | { kind: "remove" };
 
 export function GroupDialog({
   open,
@@ -58,6 +62,34 @@ function GroupForm({
   const [busy, setBusy] = useState(false);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<PhotoChange>({ kind: "keep" });
+  const [preparing, setPreparing] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
+  const existingPhoto = group?.photoVersion ? groupPhotoUrl(group.slug, group.photoVersion) : null;
+  const photoSrc = photo.kind === "new" ? photo.dataUrl : photo.kind === "remove" ? null : existingPhoto;
+
+  async function choosePhoto(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.currentTarget.files?.[0];
+    e.currentTarget.value = "";
+    if (!file) return;
+    setPhotoError(null);
+    setPreparing(true);
+    try {
+      setPhoto({ kind: "new", dataUrl: await prepareGroupPhoto(file) });
+    } catch (error) {
+      setPhotoError(error instanceof PhotoError ? error.message : "This picture can’t be used. Try another one.");
+    } finally {
+      setPreparing(false);
+    }
+  }
+
+  /** Applies the picture change to a saved group and returns the group as it now is. */
+  async function savePhoto(saved: ChatGroup): Promise<ChatGroup> {
+    if (photo.kind === "new") return chatApi.setGroupPhoto(saved.slug, photo.dataUrl);
+    if (photo.kind === "remove" && saved.photoVersion) return chatApi.removeGroupPhoto(saved.slug);
+    return saved;
+  }
 
   const shownSlug = group ? group.slug : slugEdited ? slug : slugify(name);
   const index = group ? groups.findIndex((g) => g.id === group.id) : -1;
@@ -81,10 +113,11 @@ function GroupForm({
     void run(async () => {
       if (group) {
         const saved = await chatApi.updateGroup(group.slug, { name, description, emoji, color, postingPolicy: policy });
-        onSaved(saved, "updated");
+        onSaved(await savePhoto(saved), "updated");
       } else {
         const saved = await chatApi.createGroup({ name, slug: shownSlug, description, emoji, color, postingPolicy: policy });
-        onSaved(saved, "created");
+        // The group exists now, so open it even if the picture fails; it can be added again from Edit group.
+        onSaved(await savePhoto(saved).catch(() => saved), "created");
       }
     });
   }
@@ -110,10 +143,32 @@ function GroupForm({
   return (
     <form className="cc-form" onSubmit={submit} noValidate>
       <div className="cc-form__preview">
-        <GroupAvatar group={{ name: name || "New group", emoji, color }} size="lg" />
-        <div>
+        <GroupAvatar group={{ name: name || "New group", emoji, color }} size="lg" src={photoSrc} />
+        <div className="cc-form__preview-text">
           <p className="cc-form__preview-name">{name || "Group name"}</p>
           <p className="cc-muted cc-small">{policy === "admins" ? "Only admins can send messages" : "Everyone can send messages"}</p>
+          <div className="cc-cluster cc-form__photo-actions">
+            <label className={`cc-button cc-button--small cc-file-button${preparing ? " cc-file-button--busy" : ""}`}>
+              <input className="cc-visually-hidden" type="file" accept="image/jpeg,image/png,image/webp,image/gif,image/avif,image/heic" onChange={(e) => void choosePhoto(e)} disabled={preparing || busy} />
+              <Icon name="image" size={16} /> {preparing ? "Preparing…" : photoSrc ? "Change picture" : "Upload picture"}
+            </label>
+            {photoSrc ? (
+              <button type="button" className="cc-button cc-button--small" onClick={() => setPhoto(existingPhoto ? { kind: "remove" } : { kind: "keep" })} disabled={busy}>
+                Remove
+              </button>
+            ) : photo.kind === "remove" ? (
+              <button type="button" className="cc-button cc-button--small" onClick={() => setPhoto({ kind: "keep" })} disabled={busy}>
+                Undo
+              </button>
+            ) : null}
+          </div>
+          {photoError || fields.image ? (
+            <p className="cc-field__error" role="alert">
+              {photoError ?? fields.image}
+            </p>
+          ) : (
+            <p className="cc-field__hint">Cropped to a square. Without a picture the group shows its icon.</p>
+          )}
         </div>
       </div>
 

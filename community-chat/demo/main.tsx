@@ -3,10 +3,10 @@ import { createRoot } from "react-dom/client";
 import { createBrowserRouter, createMemoryRouter, Navigate, RouterProvider, useParams, Link } from "react-router";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { CommunityChatPage, configureCommunityChat } from "../web/src";
-import { ACT_AS, actingAs, demoTransport, ready, setActingAs, startChatter } from "./mockServer";
+import { ACT_AS, actingAs, demoPhotoUrl, demoTransport, ready, setActingAs, startChatter } from "./mockServer";
 import "./theme.css";
 
-configureCommunityChat({ transport: demoTransport });
+configureCommunityChat({ transport: demoTransport, groupPhotoUrl: demoPhotoUrl });
 
 // Switching person remounts the whole app with an empty cache, as signing in as someone else would.
 const VIEWER_EVENT = "demo-viewer-change";

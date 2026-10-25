@@ -16,8 +16,8 @@ import type {
   StaffRole,
 } from "../../shared/types";
 import { ChatError, forbidden, invalid, notFound } from "./errors";
-import type { ChatStore, GroupRow, GroupUpdate, MessageRow } from "./store";
-import { parseEditMessage, parseGroupPatch, parseNewGroup, parsePin, parseSendMessage, parseSlugList } from "./validation";
+import type { ChatStore, GroupPhoto, GroupRow, GroupUpdate, MessageRow } from "./store";
+import { parseEditMessage, parseGroupPatch, parseGroupPhoto, parseNewGroup, parsePin, parseSendMessage, parseSlugList } from "./validation";
 
 /** The signed-in member, as the host app's session middleware knows them. */
 export interface ChatViewer {
@@ -128,6 +128,35 @@ export class CommunityChatService {
       throw invalid({ slugs: "The list of groups changed. Refresh and try again." });
     }
     await this.store.reorderGroups(slugs.map((s) => bySlug.get(s)!.id));
+  }
+
+  // ---- Group pictures ----
+
+  /** Uploads or replaces a group's picture. Admins only. */
+  async setGroupPhoto(viewer: ChatViewer, slug: string, body: unknown): Promise<ChatGroup> {
+    this.requireAdmin(viewer, "Only admins can change a group’s picture.");
+    const { contentType, bytes } = parseGroupPhoto(body);
+    const group = await this.findGroup(viewer, slug);
+    const row = await this.store.setGroupPhoto(group.id, { contentType, bytes, version: newVersion() }, viewer.id);
+    if (!row) throw notFound("This group no longer exists.");
+    return { ...this.groupFields(viewer, row), lastMessage: null, unreadCount: 0, lastReadId: "0" };
+  }
+
+  /** Removes a group's picture, so it shows its emoji again. Admins only. */
+  async removeGroupPhoto(viewer: ChatViewer, slug: string): Promise<ChatGroup> {
+    this.requireAdmin(viewer, "Only admins can change a group’s picture.");
+    const group = await this.findGroup(viewer, slug);
+    const row = await this.store.setGroupPhoto(group.id, null, viewer.id);
+    if (!row) throw notFound("This group no longer exists.");
+    return { ...this.groupFields(viewer, row), lastMessage: null, unreadCount: 0, lastReadId: "0" };
+  }
+
+  /** Anyone who can see the group can see its picture. */
+  async getGroupPhoto(viewer: ChatViewer, slug: string): Promise<GroupPhoto> {
+    const group = await this.findGroup(viewer, slug);
+    const photo = await this.store.getGroupPhoto(group.id);
+    if (!photo) throw notFound("This group has no picture.");
+    return photo;
   }
 
   // ---- Messages ----
@@ -274,6 +303,7 @@ export class CommunityChatService {
       description: row.description,
       emoji: row.emoji,
       color: row.color,
+      photoVersion: row.photoVersion,
       postingPolicy: row.postingPolicy,
       sortOrder: row.sortOrder,
       archived: row.archivedAt !== null,
@@ -336,6 +366,11 @@ const BLOCKED_MESSAGES: Record<PostBlockedReason, string> = {
   archived: "This group is archived. Messages can no longer be sent.",
   no_permission: "You cannot send messages in the community right now.",
 };
+
+/** A short random token; it changes the picture's URL so browsers fetch the new one. */
+function newVersion() {
+  return Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
 
 function excerpt(body: string) {
   const line = body.replace(/\s+/g, " ").trim();
