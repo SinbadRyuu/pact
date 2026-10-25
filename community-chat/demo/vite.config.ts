@@ -6,6 +6,8 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   root: fileURLToPath(new URL(".", import.meta.url)),
   plugins: [react()],
+  // ASCII output keeps the bundle intact however the page's charset is declared.
+  esbuild: { charset: "ascii" },
   server: { port: 5175, host: true },
   preview: { port: 5175, host: true },
   build: { outDir: "dist", emptyOutDir: true },

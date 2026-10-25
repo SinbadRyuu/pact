@@ -1,6 +1,6 @@
 import { StrictMode, useEffect, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
-import { createBrowserRouter, Navigate, RouterProvider, useParams, Link } from "react-router";
+import { createBrowserRouter, createMemoryRouter, Navigate, RouterProvider, useParams, Link } from "react-router";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { CommunityChatPage, configureCommunityChat } from "../web/src";
 import { ACT_AS, actingAs, demoTransport, ready, setActingAs, startChatter } from "./mockServer";
@@ -59,7 +59,11 @@ function MemberStub() {
   );
 }
 
-const router = createBrowserRouter([
+// The shareable preview runs inside a frame whose URL it can't control, so it keeps its route in memory.
+const PREVIEW = import.meta.env.VITE_PREVIEW === "1";
+const createRouter = PREVIEW ? (routes: Parameters<typeof createMemoryRouter>[0]) => createMemoryRouter(routes, { initialEntries: ["/app/community"] }) : createBrowserRouter;
+
+const router = createRouter([
   { path: "/", element: <Navigate to="/app/community" replace /> },
   { path: "/app/community", element: <Shell><CommunityChatPage /></Shell> },
   { path: "/app/community/members/:handle", element: <MemberStub /> },
@@ -84,7 +88,7 @@ function App() {
 
 void ready.then(() => {
   const params = new URLSearchParams(location.search);
-  if (!params.has("quiet")) startChatter(Number(params.get("chatter")) || undefined);
+  if (!params.has("quiet")) startChatter(Number(params.get("chatter")) || (PREVIEW ? 15_000 : undefined));
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <App />

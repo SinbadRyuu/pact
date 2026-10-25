@@ -362,7 +362,7 @@ function MessageBubble({
   const menu: Array<{ label: string; icon: Parameters<typeof Icon>[0]["name"]; run: () => void; danger?: boolean }> = [];
   if (!m.deleted) {
     if (actions.canReply) menu.push({ label: "Reply", icon: "reply", run: () => actions.onReply(m) });
-    menu.push({ label: "Copy text", icon: "copy", run: () => void navigator.clipboard?.writeText(m.body) });
+    menu.push({ label: "Copy text", icon: "copy", run: () => void navigator.clipboard?.writeText(m.body).catch(() => {}) });
     if (m.canEdit) menu.push({ label: "Edit", icon: "pencil", run: () => actions.onEdit(m) });
     if (actions.canModerate) menu.push({ label: isPinned ? "Unpin" : "Pin", icon: "pin", run: () => actions.onPin(isPinned ? null : m) });
     if (m.canDelete) menu.push({ label: "Delete", icon: "trash", run: () => actions.onDelete(m), danger: true });

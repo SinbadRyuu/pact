@@ -40,7 +40,7 @@ export const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 export function slugify(name: string): string {
   return name
     .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")

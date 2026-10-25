@@ -71,6 +71,10 @@ describe("CommunityChatService", () => {
       }
     });
 
+    it("makes links from accented names", async () => {
+      expect((await service.createGroup(admin, { name: "Café Tomás Trading" })).slug).toBe("cafe-tomas-trading");
+    });
+
     it("validates new groups", async () => {
       const e = await rejects(service.createGroup(admin, { name: "x", color: "plaid", postingPolicy: "nobody" }), 422);
       expect(Object.keys(e.fields!)).toEqual(expect.arrayContaining(["name", "color", "postingPolicy"]));
