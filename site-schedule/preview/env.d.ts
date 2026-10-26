@@ -1,0 +1,3 @@
+declare module "*.html" { const s: string; export default s; }
+declare module "*.jpg" { const s: string; export default s; }
+declare module "*.css";
