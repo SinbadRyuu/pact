@@ -24,6 +24,18 @@ Telegram-style group chats for `/app/community`: VT Impact General Chat, VT Impa
 
 ➡️ See [`community-chat/README.md`](community-chat/README.md) for install steps and a local demo.
 
+## Schedule button
+
+A "This week's schedule" button on the vtimpact.com landing page that opens the weekly lineup on its own page at `/schedule`, outside the Impact Investment portal.
+
+➡️ See [`site-schedule/README.md`](site-schedule/README.md) for install steps.
+
+## Trade Room signals
+
+The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6, stop loss, notes, chart, auto-manage) and signal cards for the Trade Room on the VT Impact gateway.
+
+➡️ See [`trade-room-signals/README.md`](trade-room-signals/README.md) for install steps, or paste [`trade-room-signals/LOVABLE_PROMPT.md`](trade-room-signals/LOVABLE_PROMPT.md) into Lovable.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
