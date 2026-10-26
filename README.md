@@ -18,6 +18,12 @@ The weekly lineup for `/investment/calls` on vtimpact.com: week switching, a Mon
 
 ➡️ See [`investment-live-calls/README.md`](investment-live-calls/README.md) for install steps.
 
+## Schedule button
+
+A "This week's schedule" button on the vtimpact.com landing page that opens the weekly lineup on its own page at `/schedule`, outside the Impact Investment portal.
+
+➡️ See [`site-schedule/README.md`](site-schedule/README.md) for install steps.
+
 ## Trade Room signals
 
 The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6, stop loss, notes, chart, auto-manage) and signal cards for the Trade Room on the VT Impact gateway.
