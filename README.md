@@ -18,6 +18,12 @@ The weekly lineup for `/investment/calls` on vtimpact.com: week switching, a Mon
 
 ➡️ See [`investment-live-calls/README.md`](investment-live-calls/README.md) for install steps.
 
+## Trade Room signals
+
+The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6, stop loss, notes, chart, auto-manage) and signal cards for the Trade Room on the VT Impact gateway.
+
+➡️ See [`trade-room-signals/README.md`](trade-room-signals/README.md) for install steps, or paste [`trade-room-signals/LOVABLE_PROMPT.md`](trade-room-signals/LOVABLE_PROMPT.md) into Lovable.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
