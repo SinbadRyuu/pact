@@ -17,7 +17,7 @@ A Pine Script v6 indicator for TradingView. It looks for a liquidity sweep, then
 
 - Each entry is followed until price hits the stop or the target. If one candle hits both, it counts as a loss.
 - The chart marks each outcome with **TP ✓** or **SL ✗**.
-- The dashboard shows how many trades were won and lost, the win rate and the net R across the loaded history.
+- The dashboard shows how many trades were won and lost and the net R across the loaded history.
 - Use these numbers to compare settings, rather than judging from a handful of trades.
 
 ## Higher-timeframe FVGs

@@ -519,7 +519,7 @@ if showPlan and (bullEntry or bearEntry) and not na(entryPx)
 // DASHBOARD
 // =====================================================
 
-var table dashboard = table.new(position.top_right, 2, 9, bgcolor=color.new(#101722, 14), frame_color=color.new(#5d718e, 60), frame_width=1)
+var table dashboard = table.new(position.top_right, 2, 8, bgcolor=color.new(#101722, 14), frame_color=color.new(#5d718e, 60), frame_width=1)
 
 if barstate.islast
     if showDash
@@ -543,17 +543,13 @@ if barstate.islast
         table.cell(dashboard, 0, 5, "Entries", text_color=color.silver, text_size=size.tiny)
         table.cell(dashboard, 1, 5, str.tostring(entryCount), text_color=color.white, text_size=size.tiny)
 
-        int closedTrades = wins + losses
         table.cell(dashboard, 0, 6, "Won / lost", text_color=color.silver, text_size=size.tiny)
         table.cell(dashboard, 1, 6, str.tostring(wins) + " / " + str.tostring(losses) + (trades.size() > 0 ? " (" + str.tostring(trades.size()) + " open)" : ""), text_color=color.white, text_size=size.tiny)
 
-        table.cell(dashboard, 0, 7, "Win rate", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 7, closedTrades > 0 ? str.tostring(100.0 * wins / closedTrades, "#") + "%" : "-", text_color=color.white, text_size=size.tiny)
-
-        table.cell(dashboard, 0, 8, "Net R", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 8, (netR >= 0 ? "+" : "") + str.tostring(netR, "#.#") + "R", text_color=netR >= 0 ? tpColor : slColor, text_size=size.tiny)
+        table.cell(dashboard, 0, 7, "Net R", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 7, (netR >= 0 ? "+" : "") + str.tostring(netR, "#.#") + "R", text_color=netR >= 0 ? tpColor : slColor, text_size=size.tiny)
     else
-        table.clear(dashboard, 0, 0, 1, 8)
+        table.clear(dashboard, 0, 0, 1, 7)
 
 // =====================================================
 // ALERTS
