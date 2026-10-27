@@ -1,0 +1,605 @@
+//@version=6
+strategy("PACT | MLS v2 Strategy | Liquidity Sweep Model", "MLS v2 S", overlay=true, max_boxes_count=200, max_lines_count=50, max_labels_count=100, initial_capital=10000, default_qty_type=strategy.fixed, default_qty_value=1, commission_type=strategy.commission.cash_per_contract, commission_value=0.2, process_orders_on_close=true, pyramiding=0)
+
+// PACT Finance | MLS v2 Strategy
+// Same rules as the MLS v2 indicator, wired to the Strategy Tester for backtesting.
+// Commission is set to 0.20 per side per ounce (0.40 round trip). Change it under Properties.
+// UK sessions use Europe/London; NY sessions use America/New_York.
+// Both time zones automatically handle daylight saving.
+
+// =====================================================
+// INPUTS
+// =====================================================
+
+gGeneral = "01 | Display"
+showDash = input.bool(true, "Status dashboard", group=gGeneral)
+showSweeps = input.bool(true, "Sweep markers", group=gGeneral)
+showMss = input.bool(true, "MSS markers", group=gGeneral)
+showEntries = input.bool(true, "Entry markers", group=gGeneral)
+showZones = input.bool(true, "Confirmed HTF FVGs", group=gGeneral)
+showFilled = input.bool(true, "Keep filled / expired HTF FVGs (faded)", group=gGeneral)
+keepZones = input.int(12, "HTF FVGs to keep", minval=2, maxval=60, group=gGeneral)
+showResults = input.bool(true, "Trade results (TP / SL hit)", group=gGeneral)
+showSession = input.bool(false, "Shade tracked session", group=gGeneral)
+strictTap = input.bool(false, "Require HTF FVG tap", group=gGeneral)
+
+gLiq = "02 | Liquidity"
+useSwings = input.bool(true, "Confirmed swings", group=gLiq)
+useSession = input.bool(true, "Previous session", group=gLiq)
+useDay = input.bool(true, "Previous day", group=gLiq)
+sessionName = input.string("Asia", "Tracked session", options=["Asia", "London", "New York AM", "New York PM"], group=gLiq)
+swingInput = input.int(0, "Pivot length (0 = auto)", minval=0, maxval=30, group=gLiq)
+
+gTime = "03 | Sessions"
+asia = input.session("0000-0600", "Asia | UK time", group=gTime)
+london = input.session("0700-1000", "London | UK time", group=gTime)
+nyAm = input.session("0830-1100", "NY AM | NY time", group=gTime)
+nyPm = input.session("1330-1600", "NY PM | NY time", group=gTime)
+
+gQuality = "04 | Quality"
+sweepAtr = input.float(0.03, "Sweep ATR", minval=0, step=0.01, group=gQuality)
+mssBuffer = input.float(0.05, "MSS buffer ATR", minval=0, step=0.01, group=gQuality)
+mssBody = input.float(0.30, "MSS body ATR", minval=0, step=0.05, group=gQuality)
+fvgSize = input.float(0.10, "Entry FVG ATR", minval=0, step=0.05, group=gQuality)
+htfSize = input.float(0.10, "HTF FVG ATR", minval=0, step=0.05, group=gQuality)
+maxMss = input.int(15, "Maximum bars to MSS", minval=1, maxval=150, group=gQuality)
+maxFvg = input.int(18, "Maximum bars to retest", minval=1, maxval=150, group=gQuality)
+maxHtfAge = input.int(24, "HTF zone age (HTF bars)", minval=1, maxval=200, group=gQuality)
+usePD = input.bool(false, "Premium / discount filter (prior day 50%)", group=gQuality)
+
+gFilter = "05 | Filters and costs"
+useKillzone = input.bool(false, "Only take sweeps in London / NY AM", group=gFilter, tooltip="Uses the London and NY AM times from the Sessions group. Ignored above 1H.")
+useTrend = input.bool(false, "Trade with HTF 2 trend (close vs 50 EMA, not drawn)", group=gFilter)
+useBe = input.bool(false, "Move stop to breakeven at 1R", group=gFilter)
+costPts = input.float(0.40, "Spread + commission per trade (price)", minval=0, step=0.05, group=gFilter, tooltip="Gold on OANDA is roughly 0.3 to 0.5. Every result is reduced by this.")
+minStopPts = input.float(0.0, "Minimum stop size (price)", minval=0, step=0.5, group=gFilter, tooltip="Skip trades whose stop is so small the spread eats the edge. Try 3 to 5 on 1m to 5m.")
+
+gPlan = "06 | Trade plan"
+showPlan = input.bool(true, "Draw trade plans", group=gPlan)
+rr = input.float(2.0, "Reward / risk", minval=0.5, maxval=10, step=0.5, group=gPlan)
+stopAtr = input.float(0.12, "Stop buffer ATR", minval=0, step=0.02, group=gPlan)
+minRisk = input.float(0.20, "Minimum risk ATR", minval=0.05, step=0.05, group=gPlan)
+maxRisk = input.float(5.0, "Maximum risk ATR", minval=0.25, step=0.25, group=gPlan)
+planLength = input.int(20, "Plan box length", minval=3, maxval=300, group=gPlan)
+planFill = input.int(65, "Plan box transparency", minval=0, maxval=95, group=gPlan)
+labelGap = input.int(3, "Label distance right of plan (bars)", minval=0, maxval=50, group=gPlan)
+keepPlans = input.int(4, "Plans to retain", minval=1, maxval=10, group=gPlan)
+
+gColors = "07 | Colours"
+bullColor = input.color(#25d4bd, "Bullish signals", group=gColors)
+bearColor = input.color(#ff687d, "Bearish signals", group=gColors)
+fvgBullColor = input.color(#4fa6ff, "HTF bull FVG", group=gColors)
+fvgBearColor = input.color(#ff9800, "HTF bear FVG", group=gColors)
+tpColor = input.color(#00e676, "Take profit", group=gColors)
+slColor = input.color(#ff1744, "Stop loss", group=gColors)
+sessionColor = input.color(#4fa6ff, "Session shade", group=gColors)
+
+// =====================================================
+// HELPERS
+// =====================================================
+
+type Zone
+    box b
+    float top
+    float bottom
+    int dir
+    int expires
+    color c
+    bool live = true
+
+type Trade
+    int dir
+    float entry
+    float stop
+    float target
+    float risk
+    bool be = false
+
+fPrice(float x) =>
+    str.tostring(x, format.mintick)
+
+fTfName(string tf) =>
+    tf == "60" ? "1H" : tf == "240" ? "4H" : tf
+
+// Runs on the higher timeframe. Candles [3], [2], [1] are closed, so nothing repaints.
+fHtf(float threshold) =>
+    float a = ta.atr(14)
+    bool bull = low[1] > high[3] and low[1] - high[3] >= a[1] * threshold
+    bool bear = high[1] < low[3] and low[3] - high[1] >= a[1] * threshold
+    [bull ? low[1] : na, bull ? high[3] : na, bear ? low[3] : na, bear ? high[1] : na, time[2], time]
+
+fAddZone(array<Zone> zs, int dir, float top, float bottom, int leftTime, int expires, string tf, bool dashed) =>
+    color c = dir == 1 ? fvgBullColor : fvgBearColor
+    box b = na
+    if showZones
+        b := box.new(leftTime, top, time_close, bottom, xloc=xloc.bar_time, bgcolor=color.new(c, 82), border_color=color.new(c, 35), border_style=dashed ? line.style_dashed : line.style_solid, text=fTfName(tf) + (dir == 1 ? " Bull FVG" : " Bear FVG"), text_color=c, text_size=size.tiny, text_halign=text.align_right, text_valign=text.align_center)
+    zs.push(Zone.new(b, top, bottom, dir, expires, c))
+    if zs.size() > keepZones
+        Zone old = zs.shift()
+        if not na(old.b)
+            old.b.delete()
+
+// Extends live zones; a zone dies when a candle closes through it or it gets too old.
+fUpdateZones(array<Zone> zs) =>
+    for z in zs
+        if z.live
+            bool filled = z.dir == 1 ? close < z.bottom : close > z.top
+            if filled or time > z.expires
+                z.live := false
+                if not na(z.b)
+                    if showFilled
+                        z.b.set_right(time_close)
+                        z.b.set_bgcolor(color.new(z.c, 94))
+                        z.b.set_border_color(color.new(z.c, 80))
+                        z.b.set_text_color(color.new(z.c, 60))
+                    else
+                        z.b.delete()
+            else if not na(z.b)
+                z.b.set_right(time_close)
+
+fTouch(array<Zone> zs, int dir, float h, float l) =>
+    bool hit = false
+    for z in zs
+        if z.live and z.dir == dir and h >= z.bottom and l <= z.top
+            hit := true
+    hit
+
+// =====================================================
+// ADAPTIVE TIMEFRAMES
+// =====================================================
+
+int sec = nz(timeframe.in_seconds(), 60)
+int pivotLen = swingInput > 0 ? swingInput : sec <= 300 ? 5 : sec <= 3600 ? 4 : 3
+int internalLen = math.max(2, pivotLen - 2)
+
+string htf1 = sec < 3600 ? "60" : sec < 14400 ? "240" : sec < 86400 ? "D" : sec < 604800 ? "W" : sec < 2592000 ? "M" : sec < 7776000 ? "3M" : "12M"
+string htf2 = sec < 3600 ? "240" : sec < 14400 ? "D" : sec < 86400 ? "W" : sec < 604800 ? "M" : sec < 2592000 ? "3M" : "12M"
+
+bool valid1 = timeframe.in_seconds(htf1) > sec
+bool valid2 = timeframe.in_seconds(htf2) > sec
+
+[t1, b1, st1, sb1, left1, event1] = request.security(syminfo.tickerid, htf1, fHtf(htfSize), lookahead=barmerge.lookahead_on)
+[t2, b2, st2, sb2, left2, event2] = request.security(syminfo.tickerid, htf2, fHtf(htfSize), lookahead=barmerge.lookahead_on)
+[dayHi, dayLo] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+bool trendUp = request.security(syminfo.tickerid, htf2, close[1] > ta.ema(close, 50)[1], lookahead=barmerge.lookahead_on)
+
+bool dayUsable = sec < 86400
+
+int age1 = maxHtfAge * timeframe.in_seconds(htf1) * 1000
+int age2 = maxHtfAge * timeframe.in_seconds(htf2) * 1000
+
+// =====================================================
+// TIME ZONES AND SESSIONS
+// =====================================================
+
+string sess = sessionName == "Asia" ? asia : sessionName == "London" ? london : sessionName == "New York AM" ? nyAm : nyPm
+string tz = sessionName == "New York AM" or sessionName == "New York PM" ? "America/New_York" : "Europe/London"
+
+bool sessionUsable = useSession and timeframe.isintraday and sec <= 3600
+bool inSession = sessionUsable and not na(time(timeframe.period, sess, tz))
+bool inKillzone = not na(time(timeframe.period, london, "Europe/London")) or not na(time(timeframe.period, nyAm, "America/New_York"))
+
+var float currentSessionHi = na
+var float currentSessionLo = na
+var float previousSessionHi = na
+var float previousSessionLo = na
+
+// =====================================================
+// STRUCTURE
+// =====================================================
+
+float atr = ta.atr(14)
+float ph = ta.pivothigh(high, pivotLen, pivotLen)
+float pl = ta.pivotlow(low, pivotLen, pivotLen)
+float ih = ta.pivothigh(high, internalLen, internalLen)
+float il = ta.pivotlow(low, internalLen, internalLen)
+
+// Fallback structure: the extreme of the leg into the sweep
+float legHi = ta.highest(high, pivotLen * 3)[1]
+float legLo = ta.lowest(low, pivotLen * 3)[1]
+
+var float lastHi = na
+var float lastLo = na
+var float lastInternalHi = na
+var float lastInternalLo = na
+
+// Higher timeframe zones
+
+var array<Zone> zones = array.new<Zone>()
+var int lastBull1 = na
+var int lastBear1 = na
+var int lastBull2 = na
+var int lastBear2 = na
+
+// Setup state
+
+var int stage = 0
+var int direction = 0
+var int sweepIndex = na
+var float extreme = na
+var string sweptName = "None"
+var bool touchedHtf = false
+var float structureLevel = na
+var int mssIndex = na
+
+var float gapTop = na
+var float gapBottom = na
+var int gapIndex = na
+
+var int entryCount = 0
+
+// Levels already swept; liquidity that has been taken is not traded again
+var float takenPsh = na
+var float takenPsl = na
+var float takenPdh = na
+var float takenPdl = na
+
+// Trade results
+var array<Trade> trades = array.new<Trade>()
+var int wins = 0
+var int losses = 0
+var int scratches = 0
+var float netR = 0.0
+bool tradeWin = false
+bool tradeLoss = false
+bool tradeBe = false
+
+bool bullSweep = false
+bool bearSweep = false
+bool bullMss = false
+bool bearMss = false
+bool bullEntry = false
+bool bearEntry = false
+
+float entryPx = na
+float stopPx = na
+float targetPx = na
+
+// =====================================================
+// CONFIRMED CANDLE ENGINE
+// =====================================================
+
+if barstate.isconfirmed
+
+    // Score open trades after costs. The stop is checked first, so a candle that hits both counts against you.
+    if trades.size() > 0
+        for i = trades.size() - 1 to 0
+            Trade tr = trades.get(i)
+            bool hitStop = tr.dir == 1 ? low <= tr.stop : high >= tr.stop
+            bool hitTarget = tr.dir == 1 ? high >= tr.target : low <= tr.target
+            float costR = costPts / tr.risk
+
+            if hitStop
+                if tr.be
+                    scratches += 1
+                    netR -= costR
+                    tradeBe := true
+                else
+                    losses += 1
+                    netR -= 1.0 + costR
+                    tradeLoss := true
+                trades.remove(i)
+            else if hitTarget
+                wins += 1
+                netR += rr - costR
+                tradeWin := true
+                trades.remove(i)
+            else if useBe and not tr.be and (tr.dir == 1 ? high >= tr.entry + tr.risk : low <= tr.entry - tr.risk)
+                tr.be := true
+                tr.stop := tr.entry
+
+    // New HTF FVGs
+    if valid1
+        if not na(t1) and (na(lastBull1) or event1 != lastBull1)
+            fAddZone(zones, 1, t1, b1, left1, event1 + age1, htf1, false)
+            lastBull1 := event1
+
+        if not na(st1) and (na(lastBear1) or event1 != lastBear1)
+            fAddZone(zones, -1, st1, sb1, left1, event1 + age1, htf1, false)
+            lastBear1 := event1
+
+    if valid2
+        if not na(t2) and (na(lastBull2) or event2 != lastBull2)
+            fAddZone(zones, 1, t2, b2, left2, event2 + age2, htf2, true)
+            lastBull2 := event2
+
+        if not na(st2) and (na(lastBear2) or event2 != lastBear2)
+            fAddZone(zones, -1, st2, sb2, left2, event2 + age2, htf2, true)
+            lastBear2 := event2
+
+    // Completed session range
+    if sessionUsable
+        if inSession and not inSession[1]
+            currentSessionHi := high
+            currentSessionLo := low
+        else if inSession
+            currentSessionHi := math.max(nz(currentSessionHi, high), high)
+            currentSessionLo := math.min(nz(currentSessionLo, low), low)
+
+        if not inSession and inSession[1]
+            previousSessionHi := currentSessionHi
+            previousSessionLo := currentSessionLo
+
+    // Liquidity sweeps
+    bool highSweep = false
+    bool lowSweep = false
+    string highName = ""
+    string lowName = ""
+
+    float penetration = math.max(syminfo.mintick, nz(atr, high - low) * sweepAtr)
+
+    if useSwings and not na(lastHi) and high > lastHi + penetration and close < lastHi and close[1] <= lastHi
+        highSweep := true
+        highName := "SWING HIGH"
+        lastHi := na
+
+    if useSwings and not na(lastLo) and low < lastLo - penetration and close > lastLo and close[1] >= lastLo
+        lowSweep := true
+        lowName := "SWING LOW"
+        lastLo := na
+
+    if sessionUsable and not na(previousSessionHi) and (na(takenPsh) or previousSessionHi != takenPsh) and high > previousSessionHi + penetration and close < previousSessionHi and close[1] <= previousSessionHi
+        highSweep := true
+        highName := "PSH"
+        takenPsh := previousSessionHi
+
+    if sessionUsable and not na(previousSessionLo) and (na(takenPsl) or previousSessionLo != takenPsl) and low < previousSessionLo - penetration and close > previousSessionLo and close[1] >= previousSessionLo
+        lowSweep := true
+        lowName := "PSL"
+        takenPsl := previousSessionLo
+
+    if useDay and dayUsable and not na(dayHi) and (na(takenPdh) or dayHi != takenPdh) and high > dayHi + penetration and close < dayHi and close[1] <= dayHi
+        highSweep := true
+        highName := "PDH"
+        takenPdh := dayHi
+
+    if useDay and dayUsable and not na(dayLo) and (na(takenPdl) or dayLo != takenPdl) and low < dayLo - penetration and close > dayLo and close[1] >= dayLo
+        lowSweep := true
+        lowName := "PDL"
+        takenPdl := dayLo
+
+    if highSweep and lowSweep
+        highSweep := false
+        lowSweep := false
+
+    // Expiry and invalidation
+    if stage != 0
+        bool invalidated = direction == 1 ? close < extreme : close > extreme
+        bool expired = stage == 1 ? bar_index - sweepIndex > maxMss : bar_index - mssIndex > maxFvg
+
+        if invalidated or expired
+            stage := 0
+            direction := 0
+
+    // Three candle FVG
+    bool bullGap = bar_index >= 2 and not na(atr) and low > high[2] and low - high[2] >= fvgSize * atr and close[1] > open[1]
+    bool bearGap = bar_index >= 2 and not na(atr) and high < low[2] and low[2] - high >= fvgSize * atr and close[1] < open[1]
+
+    if (stage == 1 or stage == 2) and bar_index > sweepIndex
+        if (direction == 1 and bullGap) or (direction == -1 and bearGap)
+            gapTop := direction == 1 ? low : low[2]
+            gapBottom := direction == 1 ? high[2] : high
+            gapIndex := bar_index
+
+            if stage == 2
+                stage := 3
+
+    // Market structure shift
+    if stage == 1 and bar_index > sweepIndex and not na(structureLevel) and not na(atr) and atr > 0
+        bool bodyOk = math.abs(close - open) >= mssBody * atr
+        bool directional = direction == 1 ? close > open : close < open
+        bool broke = direction == 1 ? close > structureLevel + mssBuffer * atr : close < structureLevel - mssBuffer * atr
+
+        if bodyOk and directional and broke
+            bullMss := direction == 1
+            bearMss := direction == -1
+            mssIndex := bar_index
+            stage := not na(gapTop) ? 3 : 2
+
+    // Entry retest
+    if stage == 3 and not na(gapTop) and bar_index > gapIndex and not na(atr) and atr > 0
+        bool brokenGap = direction == 1 ? close < gapBottom : close > gapTop
+
+        if brokenGap
+            stage := 0
+        else
+            bool touched = high >= gapBottom and low <= gapTop
+            bool rejected = direction == 1 ? close > gapTop and close > open : close < gapBottom and close < open
+
+            float proposedStop = direction == 1 ? extreme - stopAtr * atr : extreme + stopAtr * atr
+            float risk = direction == 1 ? close - proposedStop : proposedStop - close
+            bool acceptable = risk >= minRisk * atr and risk <= maxRisk * atr and risk >= minStopPts
+
+            // One trade at a time
+            if touched and rejected and acceptable and trades.size() == 0
+                bullEntry := direction == 1
+                bearEntry := direction == -1
+
+                entryPx := math.round_to_mintick(close)
+                stopPx := math.round_to_mintick(proposedStop)
+                targetPx := math.round_to_mintick(close + direction * rr * risk)
+
+                entryCount += 1
+                trades.push(Trade.new(direction, entryPx, stopPx, targetPx, math.abs(entryPx - stopPx)))
+                stage := 0
+
+    // Arm a new setup
+    if stage == 0 and (highSweep or lowSweep)
+        int nextDir = lowSweep ? 1 : -1
+
+        bool tap = fTouch(zones, nextDir, high, low)
+
+        // The MSS level must sit on the far side of price, otherwise any candle would "break" it
+        float internalLevel = nextDir == 1 ? lastInternalHi : lastInternalLo
+        bool internalOk = not na(internalLevel) and (nextDir == 1 ? internalLevel > close : internalLevel < close)
+        float targetStructure = internalOk ? internalLevel : nextDir == 1 ? legHi : legLo
+        bool structureOk = not na(targetStructure) and (nextDir == 1 ? targetStructure > close : targetStructure < close)
+
+        float dayMid = (dayHi + dayLo) / 2
+        bool pdOk = not usePD or not dayUsable or na(dayMid) or (nextDir == 1 ? close < dayMid : close > dayMid)
+
+        bool kzOk = not useKillzone or sec > 3600 or inKillzone
+        bool trendOk = not useTrend or not valid2 or (nextDir == 1 ? trendUp : not trendUp)
+
+        if (not strictTap or tap) and structureOk and pdOk and kzOk and trendOk
+            stage := 1
+            direction := nextDir
+            sweepIndex := bar_index
+            extreme := nextDir == 1 ? low : high
+            sweptName := nextDir == 1 ? lowName : highName
+            touchedHtf := tap
+            structureLevel := targetStructure
+            mssIndex := na
+            gapTop := na
+            gapBottom := na
+            gapIndex := na
+
+            bullSweep := nextDir == 1
+            bearSweep := nextDir == -1
+
+    // Extend, fill or expire HTF FVGs after this candle has been used
+    fUpdateZones(zones)
+
+    // Update confirmed pivots last
+    if not na(ph)
+        lastHi := ph
+
+    if not na(pl)
+        lastLo := pl
+
+    if not na(ih)
+        lastInternalHi := ih
+
+    if not na(il)
+        lastInternalLo := il
+
+// =====================================================
+// STRATEGY ORDERS
+// =====================================================
+
+if bullEntry
+    strategy.entry("Long", strategy.long)
+
+if bearEntry
+    strategy.entry("Short", strategy.short)
+
+// Re-sent every bar so the breakeven move reaches the broker emulator
+if trades.size() > 0
+    Trade live = trades.first()
+    strategy.exit(live.dir == 1 ? "Long exit" : "Short exit", live.dir == 1 ? "Long" : "Short", stop=live.stop, limit=live.target)
+
+// =====================================================
+// CHART PLOTS
+// =====================================================
+
+bgcolor(showSession and inSession ? color.new(sessionColor, 94) : na)
+
+plotshape(showSweeps and bullSweep, title="Sell-side sweep", style=shape.labelup, location=location.belowbar, color=bullColor, text="SSL", textcolor=color.black, size=size.tiny)
+plotshape(showSweeps and bearSweep, title="Buy-side sweep", style=shape.labeldown, location=location.abovebar, color=bearColor, text="BSL", textcolor=color.white, size=size.tiny)
+
+plotshape(showMss and bullMss, title="Bull MSS", style=shape.triangleup, location=location.belowbar, color=bullColor, text="MSS", textcolor=bullColor, size=size.tiny)
+plotshape(showMss and bearMss, title="Bear MSS", style=shape.triangledown, location=location.abovebar, color=bearColor, text="MSS", textcolor=bearColor, size=size.tiny)
+
+plotshape(showEntries and bullEntry, title="MLS buy", style=shape.triangleup, location=location.belowbar, color=color.lime, text="MLS BUY", textcolor=color.lime, size=size.small)
+plotshape(showEntries and bearEntry, title="MLS sell", style=shape.triangledown, location=location.abovebar, color=color.red, text="MLS SELL", textcolor=color.red, size=size.small)
+
+plotshape(showResults and tradeWin, title="TP hit", style=shape.circle, location=location.abovebar, color=tpColor, text="TP ✓", textcolor=tpColor, size=size.tiny)
+plotshape(showResults and tradeBe, title="Breakeven", style=shape.square, location=location.abovebar, color=color.gray, text="BE", textcolor=color.gray, size=size.tiny)
+plotshape(showResults and tradeLoss, title="SL hit", style=shape.xcross, location=location.belowbar, color=slColor, text="SL ✗", textcolor=slColor, size=size.tiny)
+
+// =====================================================
+// ACTIVE ENTRY FVG
+// =====================================================
+
+var box activeGap = na
+
+if barstate.islast
+    if not na(activeGap)
+        box.delete(activeGap)
+        activeGap := na
+
+    if stage == 3 and not na(gapTop)
+        activeGap := box.new(math.max(0, gapIndex), gapTop, bar_index + 1, gapBottom, bgcolor=color.new(direction == 1 ? bullColor : bearColor, 82), border_color=direction == 1 ? bullColor : bearColor, text="ENTRY FVG", text_color=direction == 1 ? bullColor : bearColor, text_size=size.tiny)
+
+// =====================================================
+// FINITE TP / SL PLANS
+// =====================================================
+
+var array<box> plans = array.new<box>()
+var array<line> planLines = array.new<line>()
+var array<label> planLabels = array.new<label>()
+
+if showPlan and (bullEntry or bearEntry) and not na(entryPx)
+    int x1 = bar_index
+    int x2 = bar_index + planLength
+
+    box takeBox = box.new(x1, math.max(entryPx, targetPx), x2, math.min(entryPx, targetPx), bgcolor=color.new(tpColor, planFill), border_color=tpColor, border_width=1, text="TP " + fPrice(targetPx), text_color=color.white, text_size=size.small, text_halign=text.align_right, text_valign=bullEntry ? text.align_top : text.align_bottom)
+
+    box stopBox = box.new(x1, math.max(entryPx, stopPx), x2, math.min(entryPx, stopPx), bgcolor=color.new(slColor, planFill), border_color=slColor, border_width=1, text="SL " + fPrice(stopPx), text_color=color.white, text_size=size.small, text_halign=text.align_right, text_valign=bullEntry ? text.align_bottom : text.align_top)
+
+    line entryLine = line.new(x1, entryPx, x2, entryPx, color=color.white, style=line.style_dashed, width=1)
+
+    string labelText = (bullEntry ? "MLS LONG " : "MLS SHORT ") + (touchedHtf ? "A" : "B") + "\nENTRY " + fPrice(entryPx) + "\nSL " + fPrice(stopPx) + "\nTP " + fPrice(targetPx) + "\nRR " + str.tostring(rr, "#.#")
+
+    // Sits to the right of the plan so it never covers the candles.
+    label entryLabel = label.new(x2 + labelGap, entryPx, labelText, style=label.style_label_left, color=color.new(bullEntry ? bullColor : bearColor, 15), textcolor=color.black, size=size.small, textalign=text.align_left)
+
+    array.push(plans, takeBox)
+    array.push(plans, stopBox)
+    array.push(planLines, entryLine)
+    array.push(planLabels, entryLabel)
+
+    while array.size(plans) > keepPlans * 2
+        box.delete(array.shift(plans))
+
+    while array.size(planLines) > keepPlans
+        line.delete(array.shift(planLines))
+
+    while array.size(planLabels) > keepPlans
+        label.delete(array.shift(planLabels))
+
+// =====================================================
+// DASHBOARD
+// =====================================================
+
+var table dashboard = table.new(position.top_right, 2, 8, bgcolor=color.new(#101722, 14), frame_color=color.new(#5d718e, 60), frame_width=1)
+
+if barstate.islast
+    if showDash
+        string status = stage == 0 ? "Waiting sweep" : stage == 1 ? "Waiting MSS" : stage == 2 ? "Waiting FVG" : "Waiting retest"
+
+        table.cell(dashboard, 0, 0, "PACT MLS v2", text_color=color.white, text_size=size.tiny)
+        table.cell(dashboard, 1, 0, timeframe.period, text_color=color.white, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 1, "Mode", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 1, sec <= 300 ? "LTF" : "SCALED", text_color=color.white, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 2, "HTFs", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 2, (valid1 ? fTfName(htf1) : "None") + " / " + (valid2 ? fTfName(htf2) : "None"), text_color=color.white, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 3, "Setup", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 3, status, text_color=color.yellow, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 4, "Sweep", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 4, sweptName, text_color=color.white, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 5, "Entries", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 5, str.tostring(entryCount), text_color=color.white, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 6, useBe ? "Won / lost / BE" : "Won / lost", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 6, str.tostring(wins) + " / " + str.tostring(losses) + (useBe ? " / " + str.tostring(scratches) : "") + (trades.size() > 0 ? " (" + str.tostring(trades.size()) + " open)" : ""), text_color=color.white, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 7, "Net R (after costs)", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 7, (netR >= 0 ? "+" : "") + str.tostring(netR, "#.#") + "R", text_color=netR >= 0 ? tpColor : slColor, text_size=size.tiny)
+    else
+        table.clear(dashboard, 0, 0, 1, 7)
+
+// =====================================================
+// ALERTS
+// =====================================================
+
+if bullEntry or bearEntry
+    string sideName = bullEntry ? "LONG" : "SHORT"
+    string gradeName = touchedHtf ? "A" : "B"
+    string message = "MLS " + sideName + " " + gradeName + " " + syminfo.ticker + " " + timeframe.period + " | ENTRY " + fPrice(entryPx) + " | SL " + fPrice(stopPx) + " | TP " + fPrice(targetPx)
+    alert(message, alert.freq_once_per_bar_close)

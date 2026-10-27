@@ -20,6 +20,28 @@ A Pine Script v6 indicator for TradingView. It looks for a liquidity sweep, then
 - The dashboard shows how many trades were won and lost and the net R across the loaded history.
 - Use these numbers to compare settings, rather than judging from a handful of trades.
 
+### Filters and costs
+
+| Setting | What it does |
+|---|---|
+| Only take sweeps in London / NY AM | Ignores sweeps outside the London and NY AM windows (1H charts and below). |
+| Trade with HTF 2 trend | Longs only when the HTF 2 close is above its 50 EMA, shorts only below it. The EMA isn't drawn. |
+| Move stop to breakeven at 1R | Once price reaches 1R, the stop moves to entry. A trade stopped out there counts as BE, not a loss. |
+| Spread + commission per trade | Taken off every result. On 1m to 5m gold, a 0.4 spread can be 10 to 25% of the risk. |
+| Minimum stop size | Skips trades with stops too small to cover costs. |
+
+Only one trade is open at a time.
+
+## Strategy version (`mls-v2-strategy.pine`)
+
+The same rules, wired to TradingView's Strategy Tester, so you can backtest on your own data feed with costs included.
+
+- Commission defaults to 0.20 per side per ounce. Change it under **Properties**.
+- Orders fill at the close of the signal candle, like the indicator.
+- The sweep, MSS and entry `alertcondition`s are removed, because strategies can't use them. The entry `alert()` still works.
+
+Read **Net profit**, **Profit factor** and **Max drawdown** in the Strategy Tester. Change one setting at a time.
+
 ## Higher-timeframe FVGs
 
 The higher timeframes follow the chart's timeframe:

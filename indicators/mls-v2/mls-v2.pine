@@ -46,7 +46,14 @@ maxFvg = input.int(18, "Maximum bars to retest", minval=1, maxval=150, group=gQu
 maxHtfAge = input.int(24, "HTF zone age (HTF bars)", minval=1, maxval=200, group=gQuality)
 usePD = input.bool(false, "Premium / discount filter (prior day 50%)", group=gQuality)
 
-gPlan = "05 | Trade plan"
+gFilter = "05 | Filters and costs"
+useKillzone = input.bool(false, "Only take sweeps in London / NY AM", group=gFilter, tooltip="Uses the London and NY AM times from the Sessions group. Ignored above 1H.")
+useTrend = input.bool(false, "Trade with HTF 2 trend (close vs 50 EMA, not drawn)", group=gFilter)
+useBe = input.bool(false, "Move stop to breakeven at 1R", group=gFilter)
+costPts = input.float(0.40, "Spread + commission per trade (price)", minval=0, step=0.05, group=gFilter, tooltip="Gold on OANDA is roughly 0.3 to 0.5. Every result is reduced by this.")
+minStopPts = input.float(0.0, "Minimum stop size (price)", minval=0, step=0.5, group=gFilter, tooltip="Skip trades whose stop is so small the spread eats the edge. Try 3 to 5 on 1m to 5m.")
+
+gPlan = "06 | Trade plan"
 showPlan = input.bool(true, "Draw trade plans", group=gPlan)
 rr = input.float(2.0, "Reward / risk", minval=0.5, maxval=10, step=0.5, group=gPlan)
 stopAtr = input.float(0.12, "Stop buffer ATR", minval=0, step=0.02, group=gPlan)
@@ -57,7 +64,7 @@ planFill = input.int(65, "Plan box transparency", minval=0, maxval=95, group=gPl
 labelGap = input.int(3, "Label distance right of plan (bars)", minval=0, maxval=50, group=gPlan)
 keepPlans = input.int(4, "Plans to retain", minval=1, maxval=10, group=gPlan)
 
-gColors = "06 | Colours"
+gColors = "07 | Colours"
 bullColor = input.color(#25d4bd, "Bullish signals", group=gColors)
 bearColor = input.color(#ff687d, "Bearish signals", group=gColors)
 fvgBullColor = input.color(#4fa6ff, "HTF bull FVG", group=gColors)
@@ -84,6 +91,8 @@ type Trade
     float entry
     float stop
     float target
+    float risk
+    bool be = false
 
 fPrice(float x) =>
     str.tostring(x, format.mintick)
@@ -151,6 +160,7 @@ bool valid2 = timeframe.in_seconds(htf2) > sec
 [t1, b1, st1, sb1, left1, event1] = request.security(syminfo.tickerid, htf1, fHtf(htfSize), lookahead=barmerge.lookahead_on)
 [t2, b2, st2, sb2, left2, event2] = request.security(syminfo.tickerid, htf2, fHtf(htfSize), lookahead=barmerge.lookahead_on)
 [dayHi, dayLo] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+bool trendUp = request.security(syminfo.tickerid, htf2, close[1] > ta.ema(close, 50)[1], lookahead=barmerge.lookahead_on)
 
 bool dayUsable = sec < 86400
 
@@ -166,6 +176,7 @@ string tz = sessionName == "New York AM" or sessionName == "New York PM" ? "Amer
 
 bool sessionUsable = useSession and timeframe.isintraday and sec <= 3600
 bool inSession = sessionUsable and not na(time(timeframe.period, sess, tz))
+bool inKillzone = not na(time(timeframe.period, london, "Europe/London")) or not na(time(timeframe.period, nyAm, "America/New_York"))
 
 var float currentSessionHi = na
 var float currentSessionLo = na
@@ -226,9 +237,11 @@ var float takenPdl = na
 var array<Trade> trades = array.new<Trade>()
 var int wins = 0
 var int losses = 0
+var int scratches = 0
 var float netR = 0.0
 bool tradeWin = false
 bool tradeLoss = false
+bool tradeBe = false
 
 bool bullSweep = false
 bool bearSweep = false
@@ -247,23 +260,32 @@ float targetPx = na
 
 if barstate.isconfirmed
 
-    // Score open trades. The stop is checked first, so a candle that hits both counts as a loss.
+    // Score open trades after costs. The stop is checked first, so a candle that hits both counts against you.
     if trades.size() > 0
         for i = trades.size() - 1 to 0
             Trade tr = trades.get(i)
             bool hitStop = tr.dir == 1 ? low <= tr.stop : high >= tr.stop
             bool hitTarget = tr.dir == 1 ? high >= tr.target : low <= tr.target
+            float costR = costPts / tr.risk
 
             if hitStop
-                losses += 1
-                netR -= 1.0
-                tradeLoss := true
+                if tr.be
+                    scratches += 1
+                    netR -= costR
+                    tradeBe := true
+                else
+                    losses += 1
+                    netR -= 1.0 + costR
+                    tradeLoss := true
                 trades.remove(i)
             else if hitTarget
                 wins += 1
-                netR += rr
+                netR += rr - costR
                 tradeWin := true
                 trades.remove(i)
+            else if useBe and not tr.be and (tr.dir == 1 ? high >= tr.entry + tr.risk : low <= tr.entry - tr.risk)
+                tr.be := true
+                tr.stop := tr.entry
 
     // New HTF FVGs
     if valid1
@@ -385,9 +407,10 @@ if barstate.isconfirmed
 
             float proposedStop = direction == 1 ? extreme - stopAtr * atr : extreme + stopAtr * atr
             float risk = direction == 1 ? close - proposedStop : proposedStop - close
-            bool acceptable = risk >= minRisk * atr and risk <= maxRisk * atr
+            bool acceptable = risk >= minRisk * atr and risk <= maxRisk * atr and risk >= minStopPts
 
-            if touched and rejected and acceptable
+            // One trade at a time
+            if touched and rejected and acceptable and trades.size() == 0
                 bullEntry := direction == 1
                 bearEntry := direction == -1
 
@@ -396,7 +419,7 @@ if barstate.isconfirmed
                 targetPx := math.round_to_mintick(close + direction * rr * risk)
 
                 entryCount += 1
-                trades.push(Trade.new(direction, entryPx, stopPx, targetPx))
+                trades.push(Trade.new(direction, entryPx, stopPx, targetPx, math.abs(entryPx - stopPx)))
                 stage := 0
 
     // Arm a new setup
@@ -414,7 +437,10 @@ if barstate.isconfirmed
         float dayMid = (dayHi + dayLo) / 2
         bool pdOk = not usePD or not dayUsable or na(dayMid) or (nextDir == 1 ? close < dayMid : close > dayMid)
 
-        if (not strictTap or tap) and structureOk and pdOk
+        bool kzOk = not useKillzone or sec > 3600 or inKillzone
+        bool trendOk = not useTrend or not valid2 or (nextDir == 1 ? trendUp : not trendUp)
+
+        if (not strictTap or tap) and structureOk and pdOk and kzOk and trendOk
             stage := 1
             direction := nextDir
             sweepIndex := bar_index
@@ -462,6 +488,7 @@ plotshape(showEntries and bullEntry, title="MLS buy", style=shape.triangleup, lo
 plotshape(showEntries and bearEntry, title="MLS sell", style=shape.triangledown, location=location.abovebar, color=color.red, text="MLS SELL", textcolor=color.red, size=size.small)
 
 plotshape(showResults and tradeWin, title="TP hit", style=shape.circle, location=location.abovebar, color=tpColor, text="TP ✓", textcolor=tpColor, size=size.tiny)
+plotshape(showResults and tradeBe, title="Breakeven", style=shape.square, location=location.abovebar, color=color.gray, text="BE", textcolor=color.gray, size=size.tiny)
 plotshape(showResults and tradeLoss, title="SL hit", style=shape.xcross, location=location.belowbar, color=slColor, text="SL ✗", textcolor=slColor, size=size.tiny)
 
 // =====================================================
@@ -543,10 +570,10 @@ if barstate.islast
         table.cell(dashboard, 0, 5, "Entries", text_color=color.silver, text_size=size.tiny)
         table.cell(dashboard, 1, 5, str.tostring(entryCount), text_color=color.white, text_size=size.tiny)
 
-        table.cell(dashboard, 0, 6, "Won / lost", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 6, str.tostring(wins) + " / " + str.tostring(losses) + (trades.size() > 0 ? " (" + str.tostring(trades.size()) + " open)" : ""), text_color=color.white, text_size=size.tiny)
+        table.cell(dashboard, 0, 6, useBe ? "Won / lost / BE" : "Won / lost", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 6, str.tostring(wins) + " / " + str.tostring(losses) + (useBe ? " / " + str.tostring(scratches) : "") + (trades.size() > 0 ? " (" + str.tostring(trades.size()) + " open)" : ""), text_color=color.white, text_size=size.tiny)
 
-        table.cell(dashboard, 0, 7, "Net R", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 0, 7, "Net R (after costs)", text_color=color.silver, text_size=size.tiny)
         table.cell(dashboard, 1, 7, (netR >= 0 ? "+" : "") + str.tostring(netR, "#.#") + "R", text_color=netR >= 0 ? tpColor : slColor, text_size=size.tiny)
     else
         table.clear(dashboard, 0, 0, 1, 7)
