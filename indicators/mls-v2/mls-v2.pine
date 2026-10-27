@@ -18,6 +18,7 @@ showEntries = input.bool(true, "Entry markers", group=gGeneral)
 showZones = input.bool(true, "Confirmed HTF FVGs", group=gGeneral)
 showFilled = input.bool(true, "Keep filled / expired HTF FVGs (faded)", group=gGeneral)
 keepZones = input.int(12, "HTF FVGs to keep", minval=2, maxval=60, group=gGeneral)
+showResults = input.bool(true, "Trade results (TP / SL hit)", group=gGeneral)
 showSession = input.bool(false, "Shade tracked session", group=gGeneral)
 strictTap = input.bool(false, "Require HTF FVG tap", group=gGeneral)
 
@@ -43,6 +44,7 @@ htfSize = input.float(0.10, "HTF FVG ATR", minval=0, step=0.05, group=gQuality)
 maxMss = input.int(15, "Maximum bars to MSS", minval=1, maxval=150, group=gQuality)
 maxFvg = input.int(18, "Maximum bars to retest", minval=1, maxval=150, group=gQuality)
 maxHtfAge = input.int(24, "HTF zone age (HTF bars)", minval=1, maxval=200, group=gQuality)
+usePD = input.bool(false, "Premium / discount filter (prior day 50%)", group=gQuality)
 
 gPlan = "05 | Trade plan"
 showPlan = input.bool(true, "Draw trade plans", group=gPlan)
@@ -76,6 +78,12 @@ type Zone
     int expires
     color c
     bool live = true
+
+type Trade
+    int dir
+    float entry
+    float stop
+    float target
 
 fPrice(float x) =>
     str.tostring(x, format.mintick)
@@ -174,6 +182,10 @@ float pl = ta.pivotlow(low, pivotLen, pivotLen)
 float ih = ta.pivothigh(high, internalLen, internalLen)
 float il = ta.pivotlow(low, internalLen, internalLen)
 
+// Fallback structure: the extreme of the leg into the sweep
+float legHi = ta.highest(high, pivotLen * 3)[1]
+float legLo = ta.lowest(low, pivotLen * 3)[1]
+
 var float lastHi = na
 var float lastLo = na
 var float lastInternalHi = na
@@ -204,6 +216,20 @@ var int gapIndex = na
 
 var int entryCount = 0
 
+// Levels already swept; liquidity that has been taken is not traded again
+var float takenPsh = na
+var float takenPsl = na
+var float takenPdh = na
+var float takenPdl = na
+
+// Trade results
+var array<Trade> trades = array.new<Trade>()
+var int wins = 0
+var int losses = 0
+var float netR = 0.0
+bool tradeWin = false
+bool tradeLoss = false
+
 bool bullSweep = false
 bool bearSweep = false
 bool bullMss = false
@@ -220,6 +246,24 @@ float targetPx = na
 // =====================================================
 
 if barstate.isconfirmed
+
+    // Score open trades. The stop is checked first, so a candle that hits both counts as a loss.
+    if trades.size() > 0
+        for i = trades.size() - 1 to 0
+            Trade tr = trades.get(i)
+            bool hitStop = tr.dir == 1 ? low <= tr.stop : high >= tr.stop
+            bool hitTarget = tr.dir == 1 ? high >= tr.target : low <= tr.target
+
+            if hitStop
+                losses += 1
+                netR -= 1.0
+                tradeLoss := true
+                trades.remove(i)
+            else if hitTarget
+                wins += 1
+                netR += rr
+                tradeWin := true
+                trades.remove(i)
 
     // New HTF FVGs
     if valid1
@@ -264,26 +308,32 @@ if barstate.isconfirmed
     if useSwings and not na(lastHi) and high > lastHi + penetration and close < lastHi and close[1] <= lastHi
         highSweep := true
         highName := "SWING HIGH"
+        lastHi := na
 
     if useSwings and not na(lastLo) and low < lastLo - penetration and close > lastLo and close[1] >= lastLo
         lowSweep := true
         lowName := "SWING LOW"
+        lastLo := na
 
-    if sessionUsable and not na(previousSessionHi) and high > previousSessionHi + penetration and close < previousSessionHi and close[1] <= previousSessionHi
+    if sessionUsable and not na(previousSessionHi) and (na(takenPsh) or previousSessionHi != takenPsh) and high > previousSessionHi + penetration and close < previousSessionHi and close[1] <= previousSessionHi
         highSweep := true
         highName := "PSH"
+        takenPsh := previousSessionHi
 
-    if sessionUsable and not na(previousSessionLo) and low < previousSessionLo - penetration and close > previousSessionLo and close[1] >= previousSessionLo
+    if sessionUsable and not na(previousSessionLo) and (na(takenPsl) or previousSessionLo != takenPsl) and low < previousSessionLo - penetration and close > previousSessionLo and close[1] >= previousSessionLo
         lowSweep := true
         lowName := "PSL"
+        takenPsl := previousSessionLo
 
-    if useDay and dayUsable and not na(dayHi) and high > dayHi + penetration and close < dayHi and close[1] <= dayHi
+    if useDay and dayUsable and not na(dayHi) and (na(takenPdh) or dayHi != takenPdh) and high > dayHi + penetration and close < dayHi and close[1] <= dayHi
         highSweep := true
         highName := "PDH"
+        takenPdh := dayHi
 
-    if useDay and dayUsable and not na(dayLo) and low < dayLo - penetration and close > dayLo and close[1] >= dayLo
+    if useDay and dayUsable and not na(dayLo) and (na(takenPdl) or dayLo != takenPdl) and low < dayLo - penetration and close > dayLo and close[1] >= dayLo
         lowSweep := true
         lowName := "PDL"
+        takenPdl := dayLo
 
     if highSweep and lowSweep
         highSweep := false
@@ -346,6 +396,7 @@ if barstate.isconfirmed
                 targetPx := math.round_to_mintick(close + direction * rr * risk)
 
                 entryCount += 1
+                trades.push(Trade.new(direction, entryPx, stopPx, targetPx))
                 stage := 0
 
     // Arm a new setup
@@ -353,9 +404,17 @@ if barstate.isconfirmed
         int nextDir = lowSweep ? 1 : -1
 
         bool tap = fTouch(zones, nextDir, high, low)
-        float targetStructure = nextDir == 1 ? lastInternalHi : lastInternalLo
 
-        if (not strictTap or tap) and not na(targetStructure)
+        // The MSS level must sit on the far side of price, otherwise any candle would "break" it
+        float internalLevel = nextDir == 1 ? lastInternalHi : lastInternalLo
+        bool internalOk = not na(internalLevel) and (nextDir == 1 ? internalLevel > close : internalLevel < close)
+        float targetStructure = internalOk ? internalLevel : nextDir == 1 ? legHi : legLo
+        bool structureOk = not na(targetStructure) and (nextDir == 1 ? targetStructure > close : targetStructure < close)
+
+        float dayMid = (dayHi + dayLo) / 2
+        bool pdOk = not usePD or not dayUsable or na(dayMid) or (nextDir == 1 ? close < dayMid : close > dayMid)
+
+        if (not strictTap or tap) and structureOk and pdOk
             stage := 1
             direction := nextDir
             sweepIndex := bar_index
@@ -401,6 +460,9 @@ plotshape(showMss and bearMss, title="Bear MSS", style=shape.triangledown, locat
 
 plotshape(showEntries and bullEntry, title="MLS buy", style=shape.triangleup, location=location.belowbar, color=color.lime, text="MLS BUY", textcolor=color.lime, size=size.small)
 plotshape(showEntries and bearEntry, title="MLS sell", style=shape.triangledown, location=location.abovebar, color=color.red, text="MLS SELL", textcolor=color.red, size=size.small)
+
+plotshape(showResults and tradeWin, title="TP hit", style=shape.circle, location=location.abovebar, color=tpColor, text="TP ✓", textcolor=tpColor, size=size.tiny)
+plotshape(showResults and tradeLoss, title="SL hit", style=shape.xcross, location=location.belowbar, color=slColor, text="SL ✗", textcolor=slColor, size=size.tiny)
 
 // =====================================================
 // ACTIVE ENTRY FVG
@@ -457,7 +519,7 @@ if showPlan and (bullEntry or bearEntry) and not na(entryPx)
 // DASHBOARD
 // =====================================================
 
-var table dashboard = table.new(position.top_right, 2, 6, bgcolor=color.new(#101722, 14), frame_color=color.new(#5d718e, 60), frame_width=1)
+var table dashboard = table.new(position.top_right, 2, 9, bgcolor=color.new(#101722, 14), frame_color=color.new(#5d718e, 60), frame_width=1)
 
 if barstate.islast
     if showDash
@@ -480,8 +542,18 @@ if barstate.islast
 
         table.cell(dashboard, 0, 5, "Entries", text_color=color.silver, text_size=size.tiny)
         table.cell(dashboard, 1, 5, str.tostring(entryCount), text_color=color.white, text_size=size.tiny)
+
+        int closedTrades = wins + losses
+        table.cell(dashboard, 0, 6, "Won / lost", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 6, str.tostring(wins) + " / " + str.tostring(losses) + (trades.size() > 0 ? " (" + str.tostring(trades.size()) + " open)" : ""), text_color=color.white, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 7, "Win rate", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 7, closedTrades > 0 ? str.tostring(100.0 * wins / closedTrades, "#") + "%" : "-", text_color=color.white, text_size=size.tiny)
+
+        table.cell(dashboard, 0, 8, "Net R", text_color=color.silver, text_size=size.tiny)
+        table.cell(dashboard, 1, 8, (netR >= 0 ? "+" : "") + str.tostring(netR, "#.#") + "R", text_color=netR >= 0 ? tpColor : slColor, text_size=size.tiny)
     else
-        table.clear(dashboard, 0, 0, 1, 5)
+        table.clear(dashboard, 0, 0, 1, 8)
 
 // =====================================================
 // ALERTS

@@ -7,6 +7,19 @@ A Pine Script v6 indicator for TradingView. It looks for a liquidity sweep, then
 3. **Entry FVG:** a three-candle gap forms in the new direction.
 4. **Entry:** price retests that gap and rejects it. The entry is graded **A** when the sweep touched a live higher-timeframe FVG, and **B** otherwise.
 
+### Rules that keep weak setups out
+
+- **Each level is only swept once.** Once a swing, session or day high or low has been swept, that liquidity is used up and the indicator won't trade the same level again.
+- **The MSS level must sit beyond price** when the sweep happens. Otherwise any candle would count as a "break". If the last internal swing is on the wrong side, the extreme of the leg into the sweep is used instead.
+- **Premium / discount filter** (optional): longs are only taken below the prior day's midpoint, and shorts only above it.
+
+### Results
+
+- Each entry is followed until price hits the stop or the target. If one candle hits both, it counts as a loss.
+- The chart marks each outcome with **TP ✓** or **SL ✗**.
+- The dashboard shows how many trades were won and lost, the win rate and the net R across the loaded history.
+- Use these numbers to compare settings, rather than judging from a handful of trades.
+
 ## Higher-timeframe FVGs
 
 The higher timeframes follow the chart's timeframe:
