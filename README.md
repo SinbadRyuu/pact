@@ -36,6 +36,12 @@ The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6
 
 ➡️ See [`trade-room-signals/README.md`](trade-room-signals/README.md) for install steps, or paste [`trade-room-signals/LOVABLE_PROMPT.md`](trade-room-signals/LOVABLE_PROMPT.md) into Lovable.
 
+## Velox Indicator
+
+Velox V2B.2, a TradingView supply and demand strategy (Pine Script v6) with order blocks, session boxes and the Velox box.
+
+➡️ See [`indicators/velox/README.md`](indicators/velox/README.md) for install steps.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
