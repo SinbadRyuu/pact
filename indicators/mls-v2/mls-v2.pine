@@ -1,5 +1,5 @@
 //@version=6
-indicator("PACT | MLS v2 | Liquidity Sweep Model", "MLS v2", overlay=true, max_boxes_count=200, max_lines_count=50, max_labels_count=100)
+indicator("PACT | MLS v2 | Liquidity Sweep Model", "MLS v2", overlay=true, max_boxes_count=200, max_lines_count=100, max_labels_count=150)
 
 // PACT Finance | MLS v2
 // Confirmed candle signals. Research indicator only.
@@ -8,82 +8,99 @@ indicator("PACT | MLS v2 | Liquidity Sweep Model", "MLS v2", overlay=true, max_b
 
 // =====================================================
 // INPUTS
+// Every input uses display.none so the settings never flood the status line.
 // =====================================================
 
 gGeneral = "01 | Display"
-showDash = input.bool(true, "Status dashboard", group=gGeneral)
-showSweeps = input.bool(true, "Sweep markers", group=gGeneral)
-showMss = input.bool(true, "MSS markers", group=gGeneral)
-showEntries = input.bool(true, "Entry markers", group=gGeneral)
-showZones = input.bool(true, "Confirmed HTF FVGs", group=gGeneral)
-showFilled = input.bool(true, "Keep filled / expired HTF FVGs (faded)", group=gGeneral)
-keepZones = input.int(12, "HTF FVGs to keep", minval=2, maxval=60, group=gGeneral)
-showResults = input.bool(true, "Trade results (TP / SL hit)", group=gGeneral)
-showSession = input.bool(false, "Shade tracked session", group=gGeneral)
-strictTap = input.bool(false, "Require HTF FVG tap", group=gGeneral)
+showDash = input.bool(true, "Dashboard", group=gGeneral, display=display.none)
+dashPosIn = input.string("Top right", "Dashboard position", options=["Top right", "Bottom right", "Bottom left", "Top left"], group=gGeneral, display=display.none)
+textSizeIn = input.string("Small", "Text size", options=["Tiny", "Small", "Normal"], group=gGeneral, display=display.none)
+showSetups = input.bool(true, "Sweep and MSS markers", group=gGeneral, display=display.none)
+hideFailed = input.bool(true, "Hide setups that never triggered", group=gGeneral, display=display.none, tooltip="Removes the sweep and MSS markers of setups that expired or were invalidated, so the chart only shows the live setup and the setups that became trades.")
+showEntries = input.bool(true, "Entry markers", group=gGeneral, display=display.none)
+showResults = input.bool(true, "Trade results (TP / SL hit)", group=gGeneral, display=display.none)
+showLevels = input.bool(true, "Live setup levels (MSS trigger, invalidation)", group=gGeneral, display=display.none)
+showLiq = input.bool(true, "Untaken liquidity levels", group=gGeneral, display=display.none, tooltip="Short lines at the right edge for the swing, session and prior day highs and lows that have not been swept yet.")
+showSession = input.bool(false, "Shade tracked session", group=gGeneral, display=display.none)
 
-gLiq = "02 | Liquidity"
-useSwings = input.bool(true, "Confirmed swings", group=gLiq)
-useSession = input.bool(true, "Previous session", group=gLiq)
-useDay = input.bool(true, "Previous day", group=gLiq)
-sessionName = input.string("Asia", "Tracked session", options=["Asia", "London", "New York AM", "New York PM"], group=gLiq)
-swingInput = input.int(0, "Pivot length (0 = auto)", minval=0, maxval=30, group=gLiq)
+gZones = "02 | HTF FVGs"
+showZones = input.bool(true, "Show HTF FVGs", group=gZones, display=display.none)
+zonesPerSide = input.int(2, "Nearest zones per side", minval=1, maxval=10, group=gZones, display=display.none, tooltip="Only the closest live zones above and below price are drawn, plus any zone price is inside.")
+zoneReach = input.float(3.0, "Only within (x HTF 1 ATR)", minval=0.5, step=0.5, group=gZones, display=display.none, tooltip="Zones and liquidity levels further than this from price are not drawn, so they can't squash the price scale. All zones are still used for A / B grading.")
+showFilled = input.bool(false, "Also show filled / expired zones (faded)", group=gZones, display=display.none)
+keepZones = input.int(12, "HTF FVGs to track", minval=2, maxval=60, group=gZones, display=display.none)
 
-gTime = "03 | Sessions"
-asia = input.session("0000-0600", "Asia | UK time", group=gTime)
-london = input.session("0700-1000", "London | UK time", group=gTime)
-nyAm = input.session("0830-1100", "NY AM | NY time", group=gTime)
-nyPm = input.session("1330-1600", "NY PM | NY time", group=gTime)
+gLiq = "03 | Liquidity"
+useSwings = input.bool(true, "Confirmed swings", group=gLiq, display=display.none)
+useSession = input.bool(true, "Previous session", group=gLiq, display=display.none)
+useDay = input.bool(true, "Previous day", group=gLiq, display=display.none)
+sessionName = input.string("Asia", "Tracked session", options=["Asia", "London", "New York AM", "New York PM"], group=gLiq, display=display.none)
+swingInput = input.int(0, "Pivot length (0 = auto)", minval=0, maxval=30, group=gLiq, display=display.none)
 
-gQuality = "04 | Quality"
-sweepAtr = input.float(0.03, "Sweep ATR", minval=0, step=0.01, group=gQuality)
-mssBuffer = input.float(0.05, "MSS buffer ATR", minval=0, step=0.01, group=gQuality)
-mssBody = input.float(0.30, "MSS body ATR", minval=0, step=0.05, group=gQuality)
-fvgSize = input.float(0.10, "Entry FVG ATR", minval=0, step=0.05, group=gQuality)
-htfSize = input.float(0.10, "HTF FVG ATR", minval=0, step=0.05, group=gQuality)
-maxMss = input.int(15, "Maximum bars to MSS", minval=1, maxval=150, group=gQuality)
-maxFvg = input.int(18, "Maximum bars to retest", minval=1, maxval=150, group=gQuality)
-maxHtfAge = input.int(24, "HTF zone age (HTF bars)", minval=1, maxval=200, group=gQuality)
-usePD = input.bool(false, "Premium / discount filter (prior day 50%)", group=gQuality)
+gTime = "04 | Sessions"
+asia = input.session("0000-0600", "Asia | UK time", group=gTime, display=display.none)
+london = input.session("0700-1000", "London | UK time", group=gTime, display=display.none)
+nyAm = input.session("0830-1100", "NY AM | NY time", group=gTime, display=display.none)
+nyPm = input.session("1330-1600", "NY PM | NY time", group=gTime, display=display.none)
 
-gFilter = "05 | Filters and costs"
-useKillzone = input.bool(false, "Only take sweeps in London / NY AM", group=gFilter, tooltip="Uses the London and NY AM times from the Sessions group. Ignored above 1H.")
-useTrend = input.bool(false, "Trade with HTF 2 trend (close vs 50 EMA, not drawn)", group=gFilter)
-useBe = input.bool(false, "Move stop to breakeven at 1R", group=gFilter)
-costPts = input.float(0.40, "Spread + commission per trade (price)", minval=0, step=0.05, group=gFilter, tooltip="Gold on OANDA is roughly 0.3 to 0.5. Every result is reduced by this.")
-minStopPts = input.float(0.0, "Minimum stop size (price)", minval=0, step=0.5, group=gFilter, tooltip="Skip trades whose stop is so small the spread eats the edge. Try 3 to 5 on 1m to 5m.")
+gQuality = "05 | Quality"
+strictTap = input.bool(false, "Require HTF FVG tap (A setups only)", group=gQuality, display=display.none)
+sweepAtr = input.float(0.03, "Sweep ATR", minval=0, step=0.01, group=gQuality, display=display.none)
+mssBuffer = input.float(0.05, "MSS buffer ATR", minval=0, step=0.01, group=gQuality, display=display.none)
+mssBody = input.float(0.30, "MSS body ATR", minval=0, step=0.05, group=gQuality, display=display.none)
+fvgSize = input.float(0.10, "Entry FVG ATR", minval=0, step=0.05, group=gQuality, display=display.none)
+htfSize = input.float(0.10, "HTF FVG ATR", minval=0, step=0.05, group=gQuality, display=display.none)
+maxMss = input.int(15, "Maximum bars to MSS", minval=1, maxval=150, group=gQuality, display=display.none)
+maxFvg = input.int(18, "Maximum bars to retest", minval=1, maxval=150, group=gQuality, display=display.none)
+maxHtfAge = input.int(24, "HTF zone age (HTF bars)", minval=1, maxval=200, group=gQuality, display=display.none)
+usePD = input.bool(false, "Premium / discount filter (prior day 50%)", group=gQuality, display=display.none)
 
-gPlan = "06 | Trade plan"
-showPlan = input.bool(true, "Draw trade plans", group=gPlan)
-rr = input.float(2.0, "Reward / risk", minval=0.5, maxval=10, step=0.5, group=gPlan)
-stopAtr = input.float(0.12, "Stop buffer ATR", minval=0, step=0.02, group=gPlan)
-minRisk = input.float(0.20, "Minimum risk ATR", minval=0.05, step=0.05, group=gPlan)
-maxRisk = input.float(5.0, "Maximum risk ATR", minval=0.25, step=0.25, group=gPlan)
-planLength = input.int(20, "Plan box length", minval=3, maxval=300, group=gPlan)
-planFill = input.int(65, "Plan box transparency", minval=0, maxval=95, group=gPlan)
-labelGap = input.int(3, "Label distance right of plan (bars)", minval=0, maxval=50, group=gPlan)
-keepPlans = input.int(4, "Plans to retain", minval=1, maxval=10, group=gPlan)
+gFilter = "06 | Filters and costs"
+useKillzone = input.bool(false, "Only take sweeps in London / NY AM", group=gFilter, display=display.none, tooltip="Uses the London and NY AM times from the Sessions group. Ignored above 1H.")
+useTrend = input.bool(false, "Trade with HTF 2 trend (close vs 50 EMA, not drawn)", group=gFilter, display=display.none)
+useBe = input.bool(false, "Move stop to breakeven at 1R", group=gFilter, display=display.none)
+costPts = input.float(0.40, "Spread + commission per trade (price)", minval=0, step=0.05, group=gFilter, display=display.none, tooltip="Gold on OANDA is roughly 0.3 to 0.5. Every result is reduced by this.")
+minStopPts = input.float(0.0, "Minimum stop size (price)", minval=0, step=0.5, group=gFilter, display=display.none, tooltip="Skip trades whose stop is so small the spread eats the edge. Try 3 to 5 on 1m to 5m.")
 
-gColors = "07 | Colours"
-bullColor = input.color(#25d4bd, "Bullish signals", group=gColors)
-bearColor = input.color(#ff687d, "Bearish signals", group=gColors)
-fvgBullColor = input.color(#4fa6ff, "HTF bull FVG", group=gColors)
-fvgBearColor = input.color(#ff9800, "HTF bear FVG", group=gColors)
-tpColor = input.color(#00e676, "Take profit", group=gColors)
-slColor = input.color(#ff1744, "Stop loss", group=gColors)
-sessionColor = input.color(#4fa6ff, "Session shade", group=gColors)
+gPlan = "07 | Trade plan"
+showPlan = input.bool(true, "Draw trade plans", group=gPlan, display=display.none)
+rr = input.float(2.0, "Reward / risk", minval=0.5, maxval=10, step=0.5, group=gPlan, display=display.none)
+stopAtr = input.float(0.12, "Stop buffer ATR", minval=0, step=0.02, group=gPlan, display=display.none)
+minRisk = input.float(0.20, "Minimum risk ATR", minval=0.05, step=0.05, group=gPlan, display=display.none)
+maxRisk = input.float(5.0, "Maximum risk ATR", minval=0.25, step=0.25, group=gPlan, display=display.none)
+planLength = input.int(20, "Plan box length", minval=3, maxval=300, group=gPlan, display=display.none)
+planFill = input.int(65, "Plan box transparency", minval=0, maxval=95, group=gPlan, display=display.none)
+labelGap = input.int(3, "Label distance right of plan (bars)", minval=0, maxval=50, group=gPlan, display=display.none)
+keepPlans = input.int(4, "Plans to retain", minval=1, maxval=10, group=gPlan, display=display.none)
+
+gColors = "08 | Colours"
+bullColor = input.color(#25d4bd, "Bullish signals", group=gColors, display=display.none)
+bearColor = input.color(#ff687d, "Bearish signals", group=gColors, display=display.none)
+fvgBullColor = input.color(#4fa6ff, "HTF bull FVG", group=gColors, display=display.none)
+fvgBearColor = input.color(#ff9800, "HTF bear FVG", group=gColors, display=display.none)
+liqColor = input.color(#b2b5be, "Liquidity levels", group=gColors, display=display.none)
+tpColor = input.color(#00e676, "Take profit", group=gColors, display=display.none)
+slColor = input.color(#ff1744, "Stop loss", group=gColors, display=display.none)
+sessionColor = input.color(#4fa6ff, "Session shade", group=gColors, display=display.none)
+
+string txtSize = textSizeIn == "Tiny" ? size.tiny : textSizeIn == "Normal" ? size.normal : size.small
+string dashPos = dashPosIn == "Bottom right" ? position.bottom_right : dashPosIn == "Bottom left" ? position.bottom_left : dashPosIn == "Top left" ? position.top_left : position.top_right
 
 // =====================================================
 // HELPERS
 // =====================================================
 
+// HTF zones are stored as data and only drawn on the last bar,
+// so far-away zones never stretch the price scale.
 type Zone
-    box b
     float top
     float bottom
     int dir
+    int leftTime
+    int rightTime
     int expires
-    color c
+    string tf
+    bool dashed
     bool live = true
 
 type Trade
@@ -105,36 +122,21 @@ fHtf(float threshold) =>
     float a = ta.atr(14)
     bool bull = low[1] > high[3] and low[1] - high[3] >= a[1] * threshold
     bool bear = high[1] < low[3] and low[3] - high[1] >= a[1] * threshold
-    [bull ? low[1] : na, bull ? high[3] : na, bear ? low[3] : na, bear ? high[1] : na, time[2], time]
+    [bull ? low[1] : na, bull ? high[3] : na, bear ? low[3] : na, bear ? high[1] : na, time[2], time, a[1]]
 
 fAddZone(array<Zone> zs, int dir, float top, float bottom, int leftTime, int expires, string tf, bool dashed) =>
-    color c = dir == 1 ? fvgBullColor : fvgBearColor
-    box b = na
-    if showZones
-        b := box.new(leftTime, top, time_close, bottom, xloc=xloc.bar_time, bgcolor=color.new(c, 82), border_color=color.new(c, 35), border_style=dashed ? line.style_dashed : line.style_solid, text=fTfName(tf) + (dir == 1 ? " Bull FVG" : " Bear FVG"), text_color=c, text_size=size.tiny, text_halign=text.align_right, text_valign=text.align_center)
-    zs.push(Zone.new(b, top, bottom, dir, expires, c))
+    zs.push(Zone.new(top, bottom, dir, leftTime, time_close, expires, fTfName(tf), dashed))
     if zs.size() > keepZones
-        Zone old = zs.shift()
-        if not na(old.b)
-            old.b.delete()
+        zs.shift()
 
-// Extends live zones; a zone dies when a candle closes through it or it gets too old.
+// A zone dies when a candle closes through it or it gets too old.
 fUpdateZones(array<Zone> zs) =>
     for z in zs
         if z.live
             bool filled = z.dir == 1 ? close < z.bottom : close > z.top
             if filled or time > z.expires
                 z.live := false
-                if not na(z.b)
-                    if showFilled
-                        z.b.set_right(time_close)
-                        z.b.set_bgcolor(color.new(z.c, 94))
-                        z.b.set_border_color(color.new(z.c, 80))
-                        z.b.set_text_color(color.new(z.c, 60))
-                    else
-                        z.b.delete()
-            else if not na(z.b)
-                z.b.set_right(time_close)
+            z.rightTime := time_close
 
 fTouch(array<Zone> zs, int dir, float h, float l) =>
     bool hit = false
@@ -142,6 +144,10 @@ fTouch(array<Zone> zs, int dir, float h, float l) =>
         if z.live and z.dir == dir and h >= z.bottom and l <= z.top
             hit := true
     hit
+
+fDrawZone(Zone z, int liveRight) =>
+    color c = z.dir == 1 ? fvgBullColor : fvgBearColor
+    box.new(z.leftTime, z.top, z.live ? liveRight : z.rightTime, z.bottom, xloc=xloc.bar_time, bgcolor=color.new(c, z.live ? 86 : 95), border_color=color.new(c, z.live ? 45 : 82), border_style=z.dashed ? line.style_dashed : line.style_solid, text=z.tf + (z.dir == 1 ? " bull FVG" : " bear FVG"), text_color=color.new(c, z.live ? 10 : 60), text_size=size.tiny, text_halign=text.align_right, text_valign=text.align_center)
 
 // =====================================================
 // ADAPTIVE TIMEFRAMES
@@ -157,8 +163,8 @@ string htf2 = sec < 3600 ? "240" : sec < 14400 ? "D" : sec < 86400 ? "W" : sec <
 bool valid1 = timeframe.in_seconds(htf1) > sec
 bool valid2 = timeframe.in_seconds(htf2) > sec
 
-[t1, b1, st1, sb1, left1, event1] = request.security(syminfo.tickerid, htf1, fHtf(htfSize), lookahead=barmerge.lookahead_on)
-[t2, b2, st2, sb2, left2, event2] = request.security(syminfo.tickerid, htf2, fHtf(htfSize), lookahead=barmerge.lookahead_on)
+[t1, b1, st1, sb1, left1, event1, htfAtr] = request.security(syminfo.tickerid, htf1, fHtf(htfSize), lookahead=barmerge.lookahead_on)
+[t2, b2, st2, sb2, left2, event2, htfAtr2] = request.security(syminfo.tickerid, htf2, fHtf(htfSize), lookahead=barmerge.lookahead_on)
 [dayHi, dayLo] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead=barmerge.lookahead_on)
 bool trendUp = request.security(syminfo.tickerid, htf2, close[1] > ta.ema(close, 50)[1], lookahead=barmerge.lookahead_on)
 
@@ -173,6 +179,7 @@ int age2 = maxHtfAge * timeframe.in_seconds(htf2) * 1000
 
 string sess = sessionName == "Asia" ? asia : sessionName == "London" ? london : sessionName == "New York AM" ? nyAm : nyPm
 string tz = sessionName == "New York AM" or sessionName == "New York PM" ? "America/New_York" : "Europe/London"
+string sessShort = sessionName == "New York AM" ? "NY AM" : sessionName == "New York PM" ? "NY PM" : sessionName
 
 bool sessionUsable = useSession and timeframe.isintraday and sec <= 3600
 bool inSession = sessionUsable and not na(time(timeframe.period, sess, tz))
@@ -216,7 +223,8 @@ var int stage = 0
 var int direction = 0
 var int sweepIndex = na
 var float extreme = na
-var string sweptName = "None"
+var string sweptName = ""
+var float sweptLevel = na
 var bool touchedHtf = false
 var float structureLevel = na
 var int mssIndex = na
@@ -226,6 +234,11 @@ var float gapBottom = na
 var int gapIndex = na
 
 var int entryCount = 0
+
+// Markers of the setup in progress. They are kept if it becomes a trade.
+var label setupSweepLbl = na
+var label setupMssLbl = na
+var array<label> chainLabels = array.new<label>()
 
 // Levels already swept; liquidity that has been taken is not traded again
 var float takenPsh = na
@@ -324,42 +337,52 @@ if barstate.isconfirmed
     bool lowSweep = false
     string highName = ""
     string lowName = ""
+    float highLevel = na
+    float lowLevel = na
 
     float penetration = math.max(syminfo.mintick, nz(atr, high - low) * sweepAtr)
 
     if useSwings and not na(lastHi) and high > lastHi + penetration and close < lastHi and close[1] <= lastHi
         highSweep := true
-        highName := "SWING HIGH"
+        highName := "Swing H"
+        highLevel := lastHi
         lastHi := na
 
     if useSwings and not na(lastLo) and low < lastLo - penetration and close > lastLo and close[1] >= lastLo
         lowSweep := true
-        lowName := "SWING LOW"
+        lowName := "Swing L"
+        lowLevel := lastLo
         lastLo := na
 
     if sessionUsable and not na(previousSessionHi) and (na(takenPsh) or previousSessionHi != takenPsh) and high > previousSessionHi + penetration and close < previousSessionHi and close[1] <= previousSessionHi
         highSweep := true
-        highName := "PSH"
+        highName := sessShort + " H"
+        highLevel := previousSessionHi
         takenPsh := previousSessionHi
 
     if sessionUsable and not na(previousSessionLo) and (na(takenPsl) or previousSessionLo != takenPsl) and low < previousSessionLo - penetration and close > previousSessionLo and close[1] >= previousSessionLo
         lowSweep := true
-        lowName := "PSL"
+        lowName := sessShort + " L"
+        lowLevel := previousSessionLo
         takenPsl := previousSessionLo
 
     if useDay and dayUsable and not na(dayHi) and (na(takenPdh) or dayHi != takenPdh) and high > dayHi + penetration and close < dayHi and close[1] <= dayHi
         highSweep := true
         highName := "PDH"
+        highLevel := dayHi
         takenPdh := dayHi
 
     if useDay and dayUsable and not na(dayLo) and (na(takenPdl) or dayLo != takenPdl) and low < dayLo - penetration and close > dayLo and close[1] >= dayLo
         lowSweep := true
         lowName := "PDL"
+        lowLevel := dayLo
         takenPdl := dayLo
 
     if highSweep and lowSweep
         highSweep := false
         lowSweep := false
+
+    bool setupFailed = false
 
     // Expiry and invalidation
     if stage != 0
@@ -369,6 +392,7 @@ if barstate.isconfirmed
         if invalidated or expired
             stage := 0
             direction := 0
+            setupFailed := true
 
     // Three candle FVG
     bool bullGap = bar_index >= 2 and not na(atr) and low > high[2] and low - high[2] >= fvgSize * atr and close[1] > open[1]
@@ -395,12 +419,16 @@ if barstate.isconfirmed
             mssIndex := bar_index
             stage := not na(gapTop) ? 3 : 2
 
+            if showSetups
+                setupMssLbl := label.new(bar_index, close, "MSS", yloc=direction == 1 ? yloc.belowbar : yloc.abovebar, style=direction == 1 ? label.style_label_up : label.style_label_down, color=color.new(direction == 1 ? bullColor : bearColor, 55), textcolor=color.white, size=size.tiny, tooltip="Market structure shift: closed " + (direction == 1 ? "above " : "below ") + fPrice(structureLevel))
+
     // Entry retest
     if stage == 3 and not na(gapTop) and bar_index > gapIndex and not na(atr) and atr > 0
         bool brokenGap = direction == 1 ? close < gapBottom : close > gapTop
 
         if brokenGap
             stage := 0
+            setupFailed := true
         else
             bool touched = high >= gapBottom and low <= gapTop
             bool rejected = direction == 1 ? close > gapTop and close > open : close < gapBottom and close < open
@@ -421,6 +449,31 @@ if barstate.isconfirmed
                 entryCount += 1
                 trades.push(Trade.new(direction, entryPx, stopPx, targetPx, math.abs(entryPx - stopPx)))
                 stage := 0
+
+                // This setup became a trade, so its markers stay on the chart
+                if not na(setupSweepLbl)
+                    chainLabels.push(setupSweepLbl)
+                if not na(setupMssLbl)
+                    chainLabels.push(setupMssLbl)
+                setupSweepLbl := na
+                setupMssLbl := na
+                while chainLabels.size() > keepPlans * 2
+                    label.delete(chainLabels.shift())
+
+    // A setup that died without a trade: remove or fade its markers
+    if setupFailed
+        if hideFailed
+            if not na(setupSweepLbl)
+                label.delete(setupSweepLbl)
+            if not na(setupMssLbl)
+                label.delete(setupMssLbl)
+        else
+            if not na(setupSweepLbl)
+                label.set_color(setupSweepLbl, color.new(color.gray, 70))
+            if not na(setupMssLbl)
+                label.set_color(setupMssLbl, color.new(color.gray, 70))
+        setupSweepLbl := na
+        setupMssLbl := na
 
     // Arm a new setup
     if stage == 0 and (highSweep or lowSweep)
@@ -446,6 +499,7 @@ if barstate.isconfirmed
             sweepIndex := bar_index
             extreme := nextDir == 1 ? low : high
             sweptName := nextDir == 1 ? lowName : highName
+            sweptLevel := nextDir == 1 ? lowLevel : highLevel
             touchedHtf := tap
             structureLevel := targetStructure
             mssIndex := na
@@ -455,6 +509,10 @@ if barstate.isconfirmed
 
             bullSweep := nextDir == 1
             bearSweep := nextDir == -1
+
+            if showSetups
+                string tip = "Swept " + sweptName + " " + fPrice(sweptLevel) + (tap ? " inside a live HTF FVG (A setup)" : " (B setup)") + ". MSS needs a close " + (nextDir == 1 ? "above " : "below ") + fPrice(targetStructure)
+                setupSweepLbl := label.new(bar_index, close, sweptName + " sweep", yloc=nextDir == 1 ? yloc.belowbar : yloc.abovebar, style=nextDir == 1 ? label.style_label_up : label.style_label_down, color=color.new(nextDir == 1 ? bullColor : bearColor, 20), textcolor=color.black, size=size.tiny, tooltip=tip)
 
     // Extend, fill or expire HTF FVGs after this candle has been used
     fUpdateZones(zones)
@@ -474,36 +532,155 @@ if barstate.isconfirmed
 
 // =====================================================
 // CHART PLOTS
+// display.pane keeps marker values out of the status line.
 // =====================================================
 
 bgcolor(showSession and inSession ? color.new(sessionColor, 94) : na)
 
-plotshape(showSweeps and bullSweep, title="Sell-side sweep", style=shape.labelup, location=location.belowbar, color=bullColor, text="SSL", textcolor=color.black, size=size.tiny)
-plotshape(showSweeps and bearSweep, title="Buy-side sweep", style=shape.labeldown, location=location.abovebar, color=bearColor, text="BSL", textcolor=color.white, size=size.tiny)
+plotshape(showEntries and bullEntry, title="MLS buy", style=shape.triangleup, location=location.belowbar, color=color.lime, text="BUY", textcolor=color.lime, size=size.small, display=display.pane)
+plotshape(showEntries and bearEntry, title="MLS sell", style=shape.triangledown, location=location.abovebar, color=color.red, text="SELL", textcolor=color.red, size=size.small, display=display.pane)
 
-plotshape(showMss and bullMss, title="Bull MSS", style=shape.triangleup, location=location.belowbar, color=bullColor, text="MSS", textcolor=bullColor, size=size.tiny)
-plotshape(showMss and bearMss, title="Bear MSS", style=shape.triangledown, location=location.abovebar, color=bearColor, text="MSS", textcolor=bearColor, size=size.tiny)
-
-plotshape(showEntries and bullEntry, title="MLS buy", style=shape.triangleup, location=location.belowbar, color=color.lime, text="MLS BUY", textcolor=color.lime, size=size.small)
-plotshape(showEntries and bearEntry, title="MLS sell", style=shape.triangledown, location=location.abovebar, color=color.red, text="MLS SELL", textcolor=color.red, size=size.small)
-
-plotshape(showResults and tradeWin, title="TP hit", style=shape.circle, location=location.abovebar, color=tpColor, text="TP ✓", textcolor=tpColor, size=size.tiny)
-plotshape(showResults and tradeBe, title="Breakeven", style=shape.square, location=location.abovebar, color=color.gray, text="BE", textcolor=color.gray, size=size.tiny)
-plotshape(showResults and tradeLoss, title="SL hit", style=shape.xcross, location=location.belowbar, color=slColor, text="SL ✗", textcolor=slColor, size=size.tiny)
+plotshape(showResults and tradeWin, title="TP hit", style=shape.circle, location=location.abovebar, color=tpColor, text="TP ✓", textcolor=tpColor, size=size.tiny, display=display.pane)
+plotshape(showResults and tradeBe, title="Breakeven", style=shape.square, location=location.abovebar, color=color.gray, text="BE", textcolor=color.gray, size=size.tiny, display=display.pane)
+plotshape(showResults and tradeLoss, title="SL hit", style=shape.xcross, location=location.belowbar, color=slColor, text="SL ✗", textcolor=slColor, size=size.tiny, display=display.pane)
 
 // =====================================================
-// ACTIVE ENTRY FVG
+// LAST BAR DRAWINGS
+// Zones, liquidity and the live setup are redrawn on the last bar only,
+// and only near price, so the price scale stays tight around the candles.
 // =====================================================
 
+var array<box> zoneBoxes = array.new<box>()
+var array<line> liqLines = array.new<line>()
+var array<label> liqLabels = array.new<label>()
+var line mssLine = na
+var label mssLineLbl = na
+var line invLine = na
+var label invLineLbl = na
 var box activeGap = na
 
+float reach = zoneReach * nz(htfAtr, nz(atr, 0) * 6)
+
+// Nearest untaken liquidity, used by the dashboard
+float liqAbove = na
+string liqAboveName = ""
+float liqBelow = na
+string liqBelowName = ""
+
 if barstate.islast
+    int liveRight = time_close + 6 * sec * 1000
+
+    // HTF FVGs
+    for b in zoneBoxes
+        b.delete()
+    zoneBoxes.clear()
+
+    if showZones and zones.size() > 0
+        array<float> upDist = array.new<float>()
+        array<int> upIdx = array.new<int>()
+        array<float> dnDist = array.new<float>()
+        array<int> dnIdx = array.new<int>()
+
+        for [i, z] in zones
+            float d = z.bottom > close ? z.bottom - close : z.top < close ? close - z.top : 0.0
+            if d <= reach
+                if not z.live
+                    if showFilled
+                        zoneBoxes.push(fDrawZone(z, liveRight))
+                else if z.bottom > close
+                    upDist.push(d)
+                    upIdx.push(i)
+                else if z.top < close
+                    dnDist.push(d)
+                    dnIdx.push(i)
+                else
+                    zoneBoxes.push(fDrawZone(z, liveRight))
+
+        if upDist.size() > 0
+            array<int> order = upDist.sort_indices()
+            for k = 0 to math.min(zonesPerSide, order.size()) - 1
+                zoneBoxes.push(fDrawZone(zones.get(upIdx.get(order.get(k))), liveRight))
+
+        if dnDist.size() > 0
+            array<int> order = dnDist.sort_indices()
+            for k = 0 to math.min(zonesPerSide, order.size()) - 1
+                zoneBoxes.push(fDrawZone(zones.get(dnIdx.get(order.get(k))), liveRight))
+
+    // Untaken liquidity: highs above price and lows below it
+    array<float> lvPx = array.new<float>()
+    array<string> lvName = array.new<string>()
+
+    if useSwings
+        lvPx.push(lastHi)
+        lvName.push("Swing H")
+        lvPx.push(lastLo)
+        lvName.push("Swing L")
+
+    if sessionUsable
+        lvPx.push(previousSessionHi == takenPsh ? na : previousSessionHi)
+        lvName.push(sessShort + " H")
+        lvPx.push(previousSessionLo == takenPsl ? na : previousSessionLo)
+        lvName.push(sessShort + " L")
+
+    if useDay and dayUsable
+        lvPx.push(dayHi == takenPdh ? na : dayHi)
+        lvName.push("PDH")
+        lvPx.push(dayLo == takenPdl ? na : dayLo)
+        lvName.push("PDL")
+
+    for l in liqLines
+        l.delete()
+    liqLines.clear()
+    for lb in liqLabels
+        lb.delete()
+    liqLabels.clear()
+
+    for [i, px] in lvPx
+        bool isHigh = i % 2 == 0
+        bool valid = not na(px) and (isHigh ? px > close : px < close)
+        if valid
+            if isHigh and (na(liqAbove) or px < liqAbove)
+                liqAbove := px
+                liqAboveName := lvName.get(i)
+            if not isHigh and (na(liqBelow) or px > liqBelow)
+                liqBelow := px
+                liqBelowName := lvName.get(i)
+
+            if showLiq and math.abs(px - close) <= reach
+                liqLines.push(line.new(bar_index - 15, px, bar_index + 4, px, color=color.new(liqColor, 30), style=line.style_dotted, width=1))
+                liqLabels.push(label.new(bar_index + 4, px, lvName.get(i) + " " + fPrice(px), style=label.style_label_left, color=color.new(color.black, 100), textcolor=liqColor, size=size.tiny, tooltip="Untaken liquidity. A sweep of this level can arm a " + (isHigh ? "short" : "long") + " setup."))
+
+    // Live setup: MSS trigger and invalidation lines
+    if not na(mssLine)
+        line.delete(mssLine)
+    if not na(mssLineLbl)
+        label.delete(mssLineLbl)
+    if not na(invLine)
+        line.delete(invLine)
+    if not na(invLineLbl)
+        label.delete(invLineLbl)
+    mssLine := na
+    mssLineLbl := na
+    invLine := na
+    invLineLbl := na
+
+    if showLevels and stage != 0
+        color dc = direction == 1 ? bullColor : bearColor
+        int x1 = math.max(0, sweepIndex)
+        if stage == 1 and not na(structureLevel)
+            mssLine := line.new(x1, structureLevel, bar_index + 4, structureLevel, color=dc, style=line.style_dashed, width=1)
+            mssLineLbl := label.new(bar_index + 4, structureLevel, "MSS trigger " + fPrice(structureLevel), style=label.style_label_left, color=color.new(color.black, 100), textcolor=dc, size=size.tiny, tooltip="A body candle closing " + (direction == 1 ? "above" : "below") + " this line confirms the shift.")
+        if not na(extreme)
+            invLine := line.new(x1, extreme, bar_index + 4, extreme, color=color.new(slColor, 20), style=line.style_dotted, width=1)
+            invLineLbl := label.new(bar_index + 4, extreme, "Invalid " + fPrice(extreme), style=label.style_label_left, color=color.new(color.black, 100), textcolor=slColor, size=size.tiny, tooltip="A close " + (direction == 1 ? "below" : "above") + " the sweep extreme cancels the setup.")
+
+    // Active entry FVG
     if not na(activeGap)
         box.delete(activeGap)
         activeGap := na
 
     if stage == 3 and not na(gapTop)
-        activeGap := box.new(math.max(0, gapIndex), gapTop, bar_index + 1, gapBottom, bgcolor=color.new(direction == 1 ? bullColor : bearColor, 82), border_color=direction == 1 ? bullColor : bearColor, text="ENTRY FVG", text_color=direction == 1 ? bullColor : bearColor, text_size=size.tiny)
+        activeGap := box.new(math.max(0, gapIndex), gapTop, bar_index + 4, gapBottom, bgcolor=color.new(direction == 1 ? bullColor : bearColor, 80), border_color=direction == 1 ? bullColor : bearColor, text="ENTRY FVG", text_color=direction == 1 ? bullColor : bearColor, text_size=size.tiny)
 
 // =====================================================
 // FINITE TP / SL PLANS
@@ -517,16 +694,16 @@ if showPlan and (bullEntry or bearEntry) and not na(entryPx)
     int x1 = bar_index
     int x2 = bar_index + planLength
 
-    box takeBox = box.new(x1, math.max(entryPx, targetPx), x2, math.min(entryPx, targetPx), bgcolor=color.new(tpColor, planFill), border_color=tpColor, border_width=1, text="TP " + fPrice(targetPx), text_color=color.white, text_size=size.small, text_halign=text.align_right, text_valign=bullEntry ? text.align_top : text.align_bottom)
+    box takeBox = box.new(x1, math.max(entryPx, targetPx), x2, math.min(entryPx, targetPx), bgcolor=color.new(tpColor, planFill), border_color=tpColor, border_width=1, text="TP " + fPrice(targetPx), text_color=color.white, text_size=txtSize, text_halign=text.align_right, text_valign=bullEntry ? text.align_top : text.align_bottom)
 
-    box stopBox = box.new(x1, math.max(entryPx, stopPx), x2, math.min(entryPx, stopPx), bgcolor=color.new(slColor, planFill), border_color=slColor, border_width=1, text="SL " + fPrice(stopPx), text_color=color.white, text_size=size.small, text_halign=text.align_right, text_valign=bullEntry ? text.align_bottom : text.align_top)
+    box stopBox = box.new(x1, math.max(entryPx, stopPx), x2, math.min(entryPx, stopPx), bgcolor=color.new(slColor, planFill), border_color=slColor, border_width=1, text="SL " + fPrice(stopPx), text_color=color.white, text_size=txtSize, text_halign=text.align_right, text_valign=bullEntry ? text.align_bottom : text.align_top)
 
     line entryLine = line.new(x1, entryPx, x2, entryPx, color=color.white, style=line.style_dashed, width=1)
 
-    string labelText = (bullEntry ? "MLS LONG " : "MLS SHORT ") + (touchedHtf ? "A" : "B") + "\nENTRY " + fPrice(entryPx) + "\nSL " + fPrice(stopPx) + "\nTP " + fPrice(targetPx) + "\nRR " + str.tostring(rr, "#.#")
+    string labelText = (bullEntry ? "LONG " : "SHORT ") + (touchedHtf ? "A" : "B") + " @ " + fPrice(entryPx) + "\nSL " + fPrice(stopPx) + "  TP " + fPrice(targetPx) + "  " + str.tostring(rr, "#.#") + "R"
 
     // Sits to the right of the plan so it never covers the candles.
-    label entryLabel = label.new(x2 + labelGap, entryPx, labelText, style=label.style_label_left, color=color.new(bullEntry ? bullColor : bearColor, 15), textcolor=color.black, size=size.small, textalign=text.align_left)
+    label entryLabel = label.new(x2 + labelGap, entryPx, labelText, style=label.style_label_left, color=color.new(bullEntry ? bullColor : bearColor, 15), textcolor=color.black, size=txtSize, textalign=text.align_left, tooltip="After " + sweptName + " sweep. A = sweep tapped a live HTF FVG, B = it did not.")
 
     array.push(plans, takeBox)
     array.push(plans, stopBox)
@@ -544,39 +721,58 @@ if showPlan and (bullEntry or bearEntry) and not na(entryPx)
 
 // =====================================================
 // DASHBOARD
+// Answers three questions: what is the setup, what price do I watch, how am I doing.
 // =====================================================
 
-var table dashboard = table.new(position.top_right, 2, 8, bgcolor=color.new(#101722, 14), frame_color=color.new(#5d718e, 60), frame_width=1)
+var table dashboard = table.new(dashPos, 2, 6, bgcolor=color.new(#101722, 10), frame_color=color.new(#5d718e, 60), frame_width=1, border_color=color.new(#5d718e, 85), border_width=1)
+
+fRow(int row, string key, string val, color valColor) =>
+    table.cell(dashboard, 0, row, key, text_color=color.silver, text_size=txtSize, text_halign=text.align_left)
+    table.cell(dashboard, 1, row, val, text_color=valColor, text_size=txtSize, text_halign=text.align_left)
 
 if barstate.islast
     if showDash
-        string status = stage == 0 ? "Waiting sweep" : stage == 1 ? "Waiting MSS" : stage == 2 ? "Waiting FVG" : "Waiting retest"
+        color dirColor = direction == 1 ? bullColor : bearColor
+        string side = direction == 1 ? "Long" : "Short"
+        string grade = touchedHtf ? "A" : "B"
 
-        table.cell(dashboard, 0, 0, "PACT MLS v2", text_color=color.white, text_size=size.tiny)
-        table.cell(dashboard, 1, 0, timeframe.period, text_color=color.white, text_size=size.tiny)
+        string setupText = stage == 0 ? "Scanning for a sweep" : side + " " + grade + " · " + sweptName + " swept"
+        color setupColor = stage == 0 ? color.gray : dirColor
 
-        table.cell(dashboard, 0, 1, "Mode", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 1, sec <= 300 ? "LTF" : "SCALED", text_color=color.white, text_size=size.tiny)
+        string nextText = ""
+        if stage == 0
+            string up = na(liqAbove) ? "none" : liqAboveName + " " + fPrice(liqAbove)
+            string dn = na(liqBelow) ? "none" : liqBelowName + " " + fPrice(liqBelow)
+            nextText := "▲ " + up + "   ▼ " + dn
+        else if stage == 1
+            nextText := "MSS: close " + (direction == 1 ? "above " : "below ") + fPrice(structureLevel) + " (" + str.tostring(math.max(0, maxMss - (bar_index - sweepIndex))) + " bars left)"
+        else if stage == 2
+            nextText := "Wait for a " + (direction == 1 ? "bullish" : "bearish") + " FVG (" + str.tostring(math.max(0, maxFvg - (bar_index - mssIndex))) + " bars left)"
+        else
+            nextText := "Retest " + fPrice(gapBottom) + " – " + fPrice(gapTop) + " (" + str.tostring(math.max(0, maxFvg - (bar_index - mssIndex))) + " bars left)"
 
-        table.cell(dashboard, 0, 2, "HTFs", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 2, (valid1 ? fTfName(htf1) : "None") + " / " + (valid2 ? fTfName(htf2) : "None"), text_color=color.white, text_size=size.tiny)
+        string invText = stage == 0 ? "–" : "Close " + (direction == 1 ? "below " : "above ") + fPrice(extreme)
 
-        table.cell(dashboard, 0, 3, "Setup", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 3, status, text_color=color.yellow, text_size=size.tiny)
+        string tradeText = "None open"
+        color tradeColor = color.gray
+        if trades.size() > 0
+            Trade tr = trades.first()
+            float liveR = (close - tr.entry) * tr.dir / tr.risk
+            tradeText := (tr.dir == 1 ? "Long @ " : "Short @ ") + fPrice(tr.entry) + "  " + (liveR >= 0 ? "+" : "") + str.tostring(liveR, "#.##") + "R" + (tr.be ? "  (BE)" : "")
+            tradeColor := liveR >= 0 ? tpColor : slColor
 
-        table.cell(dashboard, 0, 4, "Sweep", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 4, sweptName, text_color=color.white, text_size=size.tiny)
+        string recordText = str.tostring(wins) + "W  " + str.tostring(losses) + "L" + (useBe ? "  " + str.tostring(scratches) + "BE" : "") + "  ·  " + (netR >= 0 ? "+" : "") + str.tostring(netR, "#.#") + "R net"
 
-        table.cell(dashboard, 0, 5, "Entries", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 5, str.tostring(entryCount), text_color=color.white, text_size=size.tiny)
+        string htfText = (valid1 ? fTfName(htf1) : "–") + " / " + (valid2 ? fTfName(htf2) : "–")
 
-        table.cell(dashboard, 0, 6, useBe ? "Won / lost / BE" : "Won / lost", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 6, str.tostring(wins) + " / " + str.tostring(losses) + (useBe ? " / " + str.tostring(scratches) : "") + (trades.size() > 0 ? " (" + str.tostring(trades.size()) + " open)" : ""), text_color=color.white, text_size=size.tiny)
-
-        table.cell(dashboard, 0, 7, "Net R (after costs)", text_color=color.silver, text_size=size.tiny)
-        table.cell(dashboard, 1, 7, (netR >= 0 ? "+" : "") + str.tostring(netR, "#.#") + "R", text_color=netR >= 0 ? tpColor : slColor, text_size=size.tiny)
+        fRow(0, "MLS v2 · " + timeframe.period, "HTF " + htfText, color.white)
+        fRow(1, "Setup", setupText, setupColor)
+        fRow(2, stage == 0 ? "Liquidity" : "Next", nextText, stage == 0 ? liqColor : color.yellow)
+        fRow(3, "Invalid if", invText, stage == 0 ? color.gray : slColor)
+        fRow(4, "Trade", tradeText, tradeColor)
+        fRow(5, "Record", recordText, netR >= 0 ? tpColor : slColor)
     else
-        table.clear(dashboard, 0, 0, 1, 7)
+        table.clear(dashboard, 0, 0, 1, 5)
 
 // =====================================================
 // ALERTS

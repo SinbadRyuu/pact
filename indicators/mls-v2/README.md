@@ -16,7 +16,7 @@ A Pine Script v6 indicator for TradingView. It looks for a liquidity sweep, then
 ### Results
 
 - Each entry is followed until price hits the stop or the target. If one candle hits both, it counts as a loss.
-- The chart marks each outcome with **TP ✓** or **SL ✗**.
+- The chart marks each outcome with **TP ✓** or **SL ✗**, and entries with **BUY** or **SELL**.
 - The dashboard shows how many trades were won and lost and the net R across the loaded history.
 - Use these numbers to compare settings, rather than judging from a handful of trades.
 
@@ -42,6 +42,23 @@ The same rules, wired to TradingView's Strategy Tester, so you can backtest on y
 
 Read **Net profit**, **Profit factor** and **Max drawdown** in the Strategy Tester. Change one setting at a time.
 
+## Reading the chart
+
+The chart is kept quiet on purpose. Only the things you can act on are drawn.
+
+- **Dashboard.** It answers three questions:
+  - **Setup:** what is armed, for example *Long A · PDL swept*, or *Scanning for a sweep*.
+  - **Next / Liquidity:** the exact price to watch. While scanning, this shows the nearest untaken high and low. During a setup, it shows the MSS trigger, the FVG to wait for, or the retest zone, plus how many bars are left before the setup expires.
+  - **Invalid if:** the close that cancels the setup.
+  - **Trade** shows the open trade and its live R. **Record** shows wins, losses and net R after costs.
+- **Live setup lines.** A dashed *MSS trigger* line and a dotted *Invalid* line, drawn only while a setup is live.
+- **Sweep and MSS markers** are named after the level that was swept (*PDL sweep*, *Asia H sweep*, *Swing L sweep*). Hover a marker for its price and grade. Setups that expire or are invalidated are removed, so only the live setup and setups that became trades stay on the chart. Turn off *Hide setups that never triggered* to keep them, faded.
+- **Untaken liquidity.** Short dotted lines at the right edge mark the swing, session and prior day highs and lows that haven't been swept yet.
+- **HTF FVGs.** Only the nearest live zones above and below price are drawn (2 per side by default), and only within 3x the HTF 1 ATR. Zones far from price would otherwise stretch the price scale and squash the candles. Every tracked zone still counts for A / B grading.
+- **Status line.** No input values are printed next to the indicator name.
+
+Use *Dashboard position* and *Text size* in **01 | Display** to fit the dashboard to your layout. None of these display settings change the signals.
+
 ## Higher-timeframe FVGs
 
 The higher timeframes follow the chart's timeframe:
@@ -53,8 +70,8 @@ The higher timeframes follow the chart's timeframe:
 | 4H to under D | D | W |
 | D to under W | W | M |
 
-- Each FVG is drawn from the candle where it formed, and stays on the chart when you scroll back.
-- A zone stays live and keeps extending until a candle closes through it or it reaches *HTF zone age* higher-timeframe bars. It then fades, or is removed if *Keep filled / expired HTF FVGs* is off.
+- Each FVG is drawn from the candle where it formed.
+- A zone stays live and keeps extending until a candle closes through it or it reaches *HTF zone age* higher-timeframe bars. After that it is hidden, unless *Also show filled / expired zones* is on, in which case it is drawn faded.
 - Bull FVGs are blue and bear FVGs are orange. You can change both colours in the settings.
 
 ## Trade plans
