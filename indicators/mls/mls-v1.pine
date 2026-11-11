@@ -1,0 +1,431 @@
+//@version=6
+indicator("MLS | Macauley-style Liquidity Sweep Model", "MLS v1", overlay = true, max_boxes_count = 80, max_lines_count = 120, max_labels_count = 150)
+
+// PACT Finance | MLS v1 | Independent indicator (does not change Velox).
+// Rules: pre-existing liquidity -> confirmed sweep/reclaim -> directional MSS -> FVG -> retest.
+// All signals require chart-bar confirmation. All HTF FVG/day values are previous closed bars.
+// On charts above 5m the MSS/FVG entry is SCALED to the chart, not falsely called a 1m entry.
+// Research/education only. Not verified as profitable or a faithful reproduction of a named trader.
+
+// ===========================================================
+// SETTINGS
+// ===========================================================
+general = "01 | Adaptive model"
+showDashboard = input.bool(true, "Small status panel", group = general)
+showSweepMarkers = input.bool(true, "Liquidity sweep markers", group = general)
+showMssMarkers = input.bool(true, "MSS markers", group = general)
+showEntryMarkers = input.bool(true, "FVG entry plans", group = general)
+showHtfFvgs = input.bool(true, "Show latest confirmed HTF FVGs", group = general)
+showSessionShade = input.bool(false, "Shade selected session", group = general)
+strictHtfTap = input.bool(false, "Require sweep to tap same-direction HTF FVG", group = general, tooltip = "Off = display A (HTF tap) and B (no HTF tap) setups. On = only A setups.")
+
+liquidity = "02 | Liquidity references"
+useSwings = input.bool(true, "Swing highs / lows", group = liquidity)
+usePreviousSession = input.bool(true, "Previous completed session high / low", group = liquidity)
+usePreviousDay = input.bool(true, "Previous day high / low", group = liquidity)
+refSession = input.string("Asia", "Previous session to track", options = ["Asia", "London", "New York AM", "New York PM"], group = liquidity)
+swingLenInput = input.int(0, "Sweep swing length (0 = auto)", minval = 0, maxval = 30, group = liquidity)
+
+sessions = "03 | Session hours"
+asiaWindow = input.session("0000-0600", "Asia (UK clock)", group = sessions)
+londonWindow = input.session("0700-1000", "London (UK clock)", group = sessions)
+nyAmWindow = input.session("0830-1100", "New York AM (NY clock)", group = sessions)
+nyPmWindow = input.session("1330-1600", "New York PM (NY clock)", group = sessions)
+
+quality = "04 | Setup quality"
+sweepMinAtr = input.float(0.03, "Minimum sweep beyond level (ATR)", minval = 0.0, maxval = 2.0, step = 0.01, group = quality)
+mssBufferAtr = input.float(0.05, "MSS close buffer (ATR)", minval = 0.0, step = 0.05, group = quality)
+mssBodyAtr = input.float(0.30, "MSS candle body minimum (ATR)", minval = 0.0, step = 0.05, group = quality)
+fvgMinAtr = input.float(0.10, "Entry FVG minimum size (ATR)", minval = 0.0, step = 0.05, group = quality)
+htfFvgMinAtr = input.float(0.10, "HTF FVG minimum size (HTF ATR)", minval = 0.0, step = 0.05, group = quality)
+maxMssBars = input.int(15, "MSS must happen within candles", minval = 1, maxval = 150, group = quality)
+maxRetestBars = input.int(18, "FVG retest must happen within candles", minval = 1, maxval = 150, group = quality)
+maxHtfAge = input.int(24, "HTF FVG age limit (HTF candles)", minval = 1, maxval = 200, group = quality)
+
+trade = "05 | Indicative entry plan (NOT auto-trading)"
+showPlan = input.bool(true, "Draw planned entry, SL and TP", group = trade)
+rewardRisk = input.float(2.0, "Planned target (R)", minval = 0.5, maxval = 10.0, step = 0.5, group = trade)
+stopBufferAtr = input.float(0.12, "Stop beyond sweep extreme (ATR)", minval = 0.0, step = 0.02, group = trade)
+minRiskAtr = input.float(0.20, "Minimum acceptable stop distance (ATR)", minval = 0.05, step = 0.05, group = trade)
+maxRiskAtr = input.float(5.00, "Maximum acceptable stop distance (ATR)", minval = 0.25, step = 0.25, group = trade)
+keepPlans = input.int(4, "Past trade plans visible", minval = 1, maxval = 10, group = trade)
+planBars = input.int(20, "Plan box length (candles)", minval = 3, maxval = 300, group = trade)
+
+colours = "06 | Colours"
+bullCol = input.color(#25d4bd, "Bullish MLS", group = colours)
+bearCol = input.color(#ff687d, "Bearish MLS", group = colours)
+htf1Col = input.color(#4fa6ff, "First HTF FVG", group = colours)
+htf2Col = input.color(#b58cff, "Second HTF FVG", group = colours)
+
+// ===========================================================
+// HELPERS AND AUTOMATIC TIMEFRAMES
+// ===========================================================
+int chartSec = nz(timeframe.in_seconds(), 60)
+bool intradayChart = timeframe.isintraday
+int autoLen = chartSec <= 300 ? 5 : chartSec <= 3600 ? 4 : 3
+int swingLen = swingLenInput > 0 ? swingLenInput : autoLen
+int mssLen = math.max(2, swingLen - 2)
+
+string htf1 = chartSec < 3600 ? "60" : chartSec < 14400 ? "240" : chartSec < 86400 ? "D" : chartSec < 604800 ? "W" : chartSec < 2592000 ? "M" : chartSec < 7776000 ? "3M" : "12M"
+string htf2 = chartSec < 3600 ? "240" : chartSec < 14400 ? "D" : chartSec < 86400 ? "W" : chartSec < 604800 ? "M" : chartSec < 2592000 ? "3M" : "12M"
+bool htf1Valid = timeframe.in_seconds(htf1) > chartSec
+bool htf2Valid = timeframe.in_seconds(htf2) > chartSec
+bool exactLtfModel = chartSec <= 300
+
+fPrice(float p) =>
+    str.tostring(p, format.mintick)
+
+isTap(float hi, float lo, float zHi, float zLo) =>
+    not na(zHi) and not na(zLo) and hi >= zLo and lo <= zHi
+
+// All HTF values in these expressions belong to the PRIOR CONFIRMED HTF candle.
+// Pine v6 lookahead_on is safe here because every series is shifted by >=1 HTF bar.
+htfBullTop(float minGap) =>
+    low[1] > high[3] and low[1] - high[3] >= ta.atr(14)[1] * minGap ? low[1] : na
+htfBullBot(float minGap) =>
+    low[1] > high[3] and low[1] - high[3] >= ta.atr(14)[1] * minGap ? high[3] : na
+htfBearTop(float minGap) =>
+    high[1] < low[3] and low[3] - high[1] >= ta.atr(14)[1] * minGap ? low[3] : na
+htfBearBot(float minGap) =>
+    high[1] < low[3] and low[3] - high[1] >= ta.atr(14)[1] * minGap ? high[1] : na
+
+[aBullTop, aBullBot, aBearTop, aBearBot, aEventTime] = request.security(syminfo.tickerid, htf1, [htfBullTop(htfFvgMinAtr), htfBullBot(htfFvgMinAtr), htfBearTop(htfFvgMinAtr), htfBearBot(htfFvgMinAtr), time[1]], lookahead = barmerge.lookahead_on)
+[bBullTop, bBullBot, bBearTop, bBearBot, bEventTime] = request.security(syminfo.tickerid, htf2, [htfBullTop(htfFvgMinAtr), htfBullBot(htfFvgMinAtr), htfBearTop(htfFvgMinAtr), htfBearBot(htfFvgMinAtr), time[1]], lookahead = barmerge.lookahead_on)
+
+// Track the most recently observed confirmed FVGs; close-through invalidation is chart based.
+var float aBT = na
+var float aBB = na
+var float aST = na
+var float aSB = na
+var int aBTime = na
+var int aSTime = na
+var float bBT = na
+var float bBB = na
+var float bST = na
+var float bSB = na
+var int bBTime = na
+var int bSTime = na
+
+// Previous completed daily levels, not the developing day's high/low.
+[prevDayHigh, prevDayLow] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+bool dailyUsable = chartSec < 86400
+
+// ===========================================================
+// PREVIOUS SESSION RANGE (TRUSTWORTHY ONLY ON <= 1H CHARTS)
+// ===========================================================
+string trackedSession = refSession == "Asia" ? asiaWindow : refSession == "London" ? londonWindow : refSession == "New York AM" ? nyAmWindow : nyPmWindow
+string trackedZone = refSession == "New York AM" or refSession == "New York PM" ? "America/New_York" : "Europe/London"
+bool useSessionRange = usePreviousSession and intradayChart and chartSec <= 3600
+bool inTracked = useSessionRange and not na(time(timeframe.period, trackedSession, trackedZone))
+var float sessionHigh = na
+var float sessionLow = na
+var float prevSessionHigh = na
+var float prevSessionLow = na
+
+// ===========================================================
+// STRUCTURE AND STATE MACHINE
+// ===========================================================
+float atr = ta.atr(14)
+float sweepPivotHigh = ta.pivothigh(high, swingLen, swingLen)
+float sweepPivotLow = ta.pivotlow(low, swingLen, swingLen)
+float internalPivotHigh = ta.pivothigh(high, mssLen, mssLen)
+float internalPivotLow = ta.pivotlow(low, mssLen, mssLen)
+var float lastSwingHigh = na
+var float lastSwingLow = na
+var float lastInternalHigh = na
+var float lastInternalLow = na
+
+// Stage 0 idle, 1 swept/wait MSS, 2 MSS/wait FVG, 3 wait FVG retest.
+var int stage = 0
+var int dir = 0
+var int sweepBar = na
+var float sweepExtreme = na
+var float sweptLevel = na
+var string sweptName = "—"
+var bool tappedHtf = false
+var float mssTarget = na
+var int mssBar = na
+var float entryFvgTop = na
+var float entryFvgBot = na
+var int entryFvgBar = na
+var int entryFvgTime = na
+var int signals = 0
+var string lastSignal = "—"
+bool bullSweep = false
+bool bearSweep = false
+bool bullMss = false
+bool bearMss = false
+bool bullEntry = false
+bool bearEntry = false
+float plannedEntry = na
+float plannedStop = na
+float plannedTarget = na
+
+if barstate.isconfirmed
+    if htf1Valid
+        if not na(aBullTop) and (na(aBTime) or aEventTime != aBTime)
+            aBT := aBullTop
+            aBB := aBullBot
+            aBTime := aEventTime
+        if not na(aBearTop) and (na(aSTime) or aEventTime != aSTime)
+            aST := aBearTop
+            aSB := aBearBot
+            aSTime := aEventTime
+        if not na(aBTime) and (time - aBTime > maxHtfAge * timeframe.in_seconds(htf1) * 1000 or close < aBB)
+            aBT := na
+            aBB := na
+        if not na(aSTime) and (time - aSTime > maxHtfAge * timeframe.in_seconds(htf1) * 1000 or close > aST)
+            aST := na
+            aSB := na
+    if htf2Valid
+        if not na(bBullTop) and (na(bBTime) or bEventTime != bBTime)
+            bBT := bBullTop
+            bBB := bBullBot
+            bBTime := bEventTime
+        if not na(bBearTop) and (na(bSTime) or bEventTime != bSTime)
+            bST := bBearTop
+            bSB := bBearBot
+            bSTime := bEventTime
+        if not na(bBTime) and (time - bBTime > maxHtfAge * timeframe.in_seconds(htf2) * 1000 or close < bBB)
+            bBT := na
+            bBB := na
+        if not na(bSTime) and (time - bSTime > maxHtfAge * timeframe.in_seconds(htf2) * 1000 or close > bST)
+            bST := na
+            bSB := na
+
+    // Finalise previous session only AFTER it ends.
+    if useSessionRange
+        if inTracked and not inTracked[1]
+            sessionHigh := high
+            sessionLow := low
+        else if inTracked
+            sessionHigh := math.max(nz(sessionHigh, high), high)
+            sessionLow := math.min(nz(sessionLow, low), low)
+        if not inTracked and inTracked[1]
+            prevSessionHigh := sessionHigh
+            prevSessionLow := sessionLow
+
+    // Previously known liquidity levels only. Swings are updated BELOW this detection.
+    bool hSweep = false
+    bool lSweep = false
+    float highLevel = na
+    float lowLevel = na
+    string highName = ""
+    string lowName = ""
+    float buffer = math.max(syminfo.mintick, nz(atr, high - low) * sweepMinAtr)
+    if useSwings and not na(lastSwingHigh) and high > lastSwingHigh + buffer and close < lastSwingHigh and close[1] <= lastSwingHigh
+        hSweep := true
+        highLevel := lastSwingHigh
+        highName := "SWING HIGH"
+    if useSwings and not na(lastSwingLow) and low < lastSwingLow - buffer and close > lastSwingLow and close[1] >= lastSwingLow
+        lSweep := true
+        lowLevel := lastSwingLow
+        lowName := "SWING LOW"
+    if useSessionRange and not na(prevSessionHigh) and high > prevSessionHigh + buffer and close < prevSessionHigh and close[1] <= prevSessionHigh
+        hSweep := true
+        highLevel := prevSessionHigh
+        highName := "PSH"
+    if useSessionRange and not na(prevSessionLow) and low < prevSessionLow - buffer and close > prevSessionLow and close[1] >= prevSessionLow
+        lSweep := true
+        lowLevel := prevSessionLow
+        lowName := "PSL"
+    if usePreviousDay and dailyUsable and not na(prevDayHigh) and high > prevDayHigh + buffer and close < prevDayHigh and close[1] <= prevDayHigh
+        hSweep := true
+        highLevel := prevDayHigh
+        highName := "PDH"
+    if usePreviousDay and dailyUsable and not na(prevDayLow) and low < prevDayLow - buffer and close > prevDayLow and close[1] >= prevDayLow
+        lSweep := true
+        lowLevel := prevDayLow
+        lowName := "PDL"
+
+    // Disallow double-sided sweeps on a single ambiguous outside candle.
+    if hSweep and lSweep
+        hSweep := false
+        lSweep := false
+
+    // Process old setup BEFORE arming a new sweep. No same-candle invented sequence.
+    if stage != 0
+        int age = bar_index - sweepBar
+        bool stopped = dir == 1 ? close < sweepExtreme : close > sweepExtreme
+        bool timedOut = stage == 1 ? age > maxMssBars : stage == 2 ? age > maxMssBars + maxRetestBars : (not na(mssBar) and bar_index - mssBar > maxRetestBars)
+        if stopped or timedOut
+            stage := 0
+            dir := 0
+
+    // Detect a chart-TF FVG on the third CLOSED candle.
+    bool formedBullFvg = bar_index >= 2 and not na(atr) and low > high[2] and low - high[2] >= fvgMinAtr * atr and close[1] > open[1]
+    bool formedBearFvg = bar_index >= 2 and not na(atr) and high < low[2] and low[2] - high >= fvgMinAtr * atr and close[1] < open[1]
+    if stage == 1 or stage == 2
+        if bar_index > sweepBar and ((dir == 1 and formedBullFvg) or (dir == -1 and formedBearFvg))
+            entryFvgTop := dir == 1 ? low : low[2]
+            entryFvgBot := dir == 1 ? high[2] : high
+            entryFvgBar := bar_index
+            entryFvgTime := time
+            if stage == 2
+                stage := 3
+
+    if stage == 1 and bar_index > sweepBar and not na(mssTarget) and not na(atr) and atr > 0
+        bool directionCandle = dir == 1 ? close > open : close < open
+        bool strongBody = math.abs(close - open) >= mssBodyAtr * atr
+        bool breakLevel = dir == 1 ? close > mssTarget + mssBufferAtr * atr : close < mssTarget - mssBufferAtr * atr
+        if directionCandle and strongBody and breakLevel
+            bullMss := dir == 1
+            bearMss := dir == -1
+            mssBar := bar_index
+            stage := not na(entryFvgTop) ? 3 : 2
+
+    if stage == 3 and not na(entryFvgTop) and bar_index > entryFvgBar and not na(atr) and atr > 0
+        // Once price closes through the opposite side of the entry FVG, discard it.
+        bool fvgBroken = dir == 1 ? close < entryFvgBot : close > entryFvgTop
+        if fvgBroken
+            stage := 0
+        else
+            bool tappedEntry = high >= entryFvgBot and low <= entryFvgTop
+            bool rejected = dir == 1 ? close > entryFvgTop and close > open : close < entryFvgBot and close < open
+            float stopPx = dir == 1 ? sweepExtreme - stopBufferAtr * atr : sweepExtreme + stopBufferAtr * atr
+            float risk = dir == 1 ? close - stopPx : stopPx - close
+            bool riskOk = risk >= minRiskAtr * atr and risk <= maxRiskAtr * atr
+            if tappedEntry and rejected and riskOk
+                bullEntry := dir == 1
+                bearEntry := dir == -1
+                plannedEntry := close
+                plannedStop := math.round_to_mintick(stopPx)
+                plannedTarget := math.round_to_mintick(close + dir * rewardRisk * risk)
+                signals += 1
+                lastSignal := (dir == 1 ? "LONG " : "SHORT ") + (tappedHtf ? "A" : "B") + " | " + sweptName
+                stage := 0
+
+    // New sweep takes precedence when the previous model is idle.
+    if stage == 0 and (hSweep or lSweep)
+        int newDir = lSweep ? 1 : -1
+        bool isHtfTap = newDir == 1 ? isTap(high, low, aBT, aBB) or isTap(high, low, bBT, bBB) : isTap(high, low, aST, aSB) or isTap(high, low, bST, bSB)
+        float relevantMss = newDir == 1 ? lastInternalHigh : lastInternalLow
+        if (not strictHtfTap or isHtfTap) and not na(relevantMss)
+            stage := 1
+            dir := newDir
+            sweepBar := bar_index
+            sweepExtreme := newDir == 1 ? low : high
+            sweptLevel := newDir == 1 ? lowLevel : highLevel
+            sweptName := newDir == 1 ? lowName : highName
+            tappedHtf := isHtfTap
+            mssTarget := relevantMss
+            mssBar := na
+            entryFvgTop := na
+            entryFvgBot := na
+            entryFvgBar := na
+            entryFvgTime := na
+            bullSweep := newDir == 1
+            bearSweep := newDir == -1
+
+    // Update pivots AFTER sweeps, so the current bar cannot manufacture its own reference.
+    if not na(sweepPivotHigh)
+        lastSwingHigh := sweepPivotHigh
+    if not na(sweepPivotLow)
+        lastSwingLow := sweepPivotLow
+    if not na(internalPivotHigh)
+        lastInternalHigh := internalPivotHigh
+    if not na(internalPivotLow)
+        lastInternalLow := internalPivotLow
+
+// ===========================================================
+// CHART / DRAWINGS
+// ===========================================================
+plot(usePreviousDay and dailyUsable ? prevDayHigh : na, "PDH", color.new(bearCol, 25), 1, plot.style_stepline)
+plot(usePreviousDay and dailyUsable ? prevDayLow : na, "PDL", color.new(bullCol, 25), 1, plot.style_stepline)
+plot(useSessionRange ? prevSessionHigh : na, "PSH", color.new(#f6b25b, 15), 1, plot.style_stepline)
+plot(useSessionRange ? prevSessionLow : na, "PSL", color.new(#f6b25b, 15), 1, plot.style_stepline)
+plot(useSwings ? lastSwingHigh : na, "Swing high", color.new(bearCol, 80), 1, plot.style_circles)
+plot(useSwings ? lastSwingLow : na, "Swing low", color.new(bullCol, 80), 1, plot.style_circles)
+
+bool sessionActive = not na(time(timeframe.period, trackedSession, trackedZone))
+bgcolor(showSessionShade and sessionActive ? color.new(htf1Col, 94) : na)
+
+plotshape(showSweepMarkers and bullSweep, "Sell-side sweep", shape.labelup, location.belowbar, bullCol, text = "SSL", textcolor = color.black, size = size.tiny)
+plotshape(showSweepMarkers and bearSweep, "Buy-side sweep", shape.labeldown, location.abovebar, bearCol, text = "BSL", textcolor = color.white, size = size.tiny)
+plotshape(showMssMarkers and bullMss, "Bullish MSS", shape.triangleup, location.belowbar, bullCol, text = "MSS", textcolor = bullCol, size = size.tiny)
+plotshape(showMssMarkers and bearMss, "Bearish MSS", shape.triangledown, location.abovebar, bearCol, text = "MSS", textcolor = bearCol, size = size.tiny)
+plotshape(showEntryMarkers and bullEntry, "MLS long setup", shape.triangleup, location.belowbar, color.lime, text = "MLS BUY", textcolor = color.lime, size = size.small)
+plotshape(showEntryMarkers and bearEntry, "MLS short setup", shape.triangledown, location.abovebar, color.red, text = "MLS SELL", textcolor = color.red, size = size.small)
+
+// HTF FVG rectangles are redrawn on the last bar (time coordinates: the HTF candle may not be a chart candle).
+var box aBullBox = na
+var box aBearBox = na
+var box bBullBox = na
+var box bBearBox = na
+var box entryGapBox = na
+if barstate.islast
+    if not na(aBullBox)
+        box.delete(aBullBox)
+        aBullBox := na
+    if not na(aBearBox)
+        box.delete(aBearBox)
+        aBearBox := na
+    if not na(bBullBox)
+        box.delete(bBullBox)
+        bBullBox := na
+    if not na(bBearBox)
+        box.delete(bBearBox)
+        bBearBox := na
+    if not na(entryGapBox)
+        box.delete(entryGapBox)
+        entryGapBox := na
+    if showHtfFvgs
+        if not na(aBT) and not na(aBTime)
+            aBullBox := box.new(aBTime, aBT, time, aBB, xloc = xloc.bar_time, extend = extend.right, bgcolor = color.new(htf1Col, 88), border_color = color.new(htf1Col, 45), text = htf1 + " Bull FVG", text_color = htf1Col, text_size = size.tiny)
+        if not na(aST) and not na(aSTime)
+            aBearBox := box.new(aSTime, aST, time, aSB, xloc = xloc.bar_time, extend = extend.right, bgcolor = color.new(htf1Col, 90), border_color = color.new(htf1Col, 45), text = htf1 + " Bear FVG", text_color = htf1Col, text_size = size.tiny)
+        if not na(bBT) and not na(bBTime)
+            bBullBox := box.new(bBTime, bBT, time, bBB, xloc = xloc.bar_time, extend = extend.right, bgcolor = color.new(htf2Col, 89), border_color = color.new(htf2Col, 45), text = htf2 + " Bull FVG", text_color = htf2Col, text_size = size.tiny)
+        if not na(bST) and not na(bSTime)
+            bBearBox := box.new(bSTime, bST, time, bSB, xloc = xloc.bar_time, extend = extend.right, bgcolor = color.new(htf2Col, 90), border_color = color.new(htf2Col, 45), text = htf2 + " Bear FVG", text_color = htf2Col, text_size = size.tiny)
+    if stage == 3 and not na(entryFvgTime) and not na(entryFvgTop)
+        entryGapBox := box.new(entryFvgTime, entryFvgTop, time, entryFvgBot, xloc = xloc.bar_time, extend = extend.right, bgcolor = color.new(dir == 1 ? bullCol : bearCol, 82), border_color = dir == 1 ? bullCol : bearCol, text = "MLS ENTRY FVG", text_color = dir == 1 ? bullCol : bearCol, text_size = size.tiny)
+
+// Trade plans: green TP box and blue SL box, `planBars` candles long (anchored to candles, not extended forever).
+var array<box> planBoxes = array.new<box>()
+var array<label> planLabels = array.new<label>()
+if showPlan and (bullEntry or bearEntry) and not na(plannedEntry)
+    color planColor = bullEntry ? bullCol : bearCol
+    box tpBox = box.new(bar_index, math.max(plannedEntry, plannedTarget), bar_index + planBars, math.min(plannedEntry, plannedTarget), xloc = xloc.bar_index, bgcolor = color.new(color.lime, 85), border_color = color.new(color.lime, 30))
+    box slBox = box.new(bar_index, math.max(plannedEntry, plannedStop), bar_index + planBars, math.min(plannedEntry, plannedStop), xloc = xloc.bar_index, bgcolor = color.new(color.blue, 85), border_color = color.new(color.blue, 30))
+    label pLabel = label.new(bar_index, plannedEntry, (bullEntry ? "MLS LONG " : "MLS SHORT ") + (tappedHtf ? "A" : "B") + "\nENTRY " + fPrice(plannedEntry) + "\nSL " + fPrice(plannedStop) + " | TP " + fPrice(plannedTarget), xloc = xloc.bar_index, style = bullEntry ? label.style_label_up : label.style_label_down, color = color.new(planColor, 70), textcolor = color.white, size = size.tiny)
+    planBoxes.push(tpBox)
+    planBoxes.push(slBox)
+    planLabels.push(pLabel)
+    while planBoxes.size() > keepPlans * 2
+        box.delete(planBoxes.shift())
+    while planLabels.size() > keepPlans
+        label.delete(planLabels.shift())
+
+// ===========================================================
+// SMALL DASHBOARD / ALERTS
+// ===========================================================
+var table dash = table.new(position.top_right, 2, 7, bgcolor = color.new(#101722, 14), frame_color = color.new(#5d718e, 60), frame_width = 1)
+if showDashboard and barstate.islast
+    string modelName = exactLtfModel ? "LTF chart" : "SCALED " + timeframe.period
+    string stageName = stage == 0 ? "Waiting sweep" : stage == 1 ? "Waiting MSS" : stage == 2 ? "Waiting FVG" : "Waiting retest"
+    string activeContext = ((not na(aBT) or not na(bBT)) ? "Bull " : "") + ((not na(aST) or not na(bST)) ? "Bear" : "")
+    dash.cell(0, 0, "MLS", text_size = size.tiny, text_color = color.white)
+    dash.cell(1, 0, timeframe.period, text_size = size.tiny, text_color = color.white)
+    dash.cell(0, 1, "Mode", text_size = size.tiny, text_color = color.silver)
+    dash.cell(1, 1, modelName, text_size = size.tiny, text_color = color.white)
+    dash.cell(0, 2, "HTF", text_size = size.tiny, text_color = color.silver)
+    dash.cell(1, 2, (htf1Valid ? htf1 : "—") + " / " + (htf2Valid ? htf2 : "—"), text_size = size.tiny, text_color = color.white)
+    dash.cell(0, 3, "PD arrays", text_size = size.tiny, text_color = color.silver)
+    dash.cell(1, 3, activeContext == "" ? "None" : activeContext, text_size = size.tiny, text_color = color.white)
+    dash.cell(0, 4, "Setup", text_size = size.tiny, text_color = color.silver)
+    dash.cell(1, 4, stageName, text_size = size.tiny, text_color = stage == 0 ? color.silver : color.yellow)
+    dash.cell(0, 5, "Sweep", text_size = size.tiny, text_color = color.silver)
+    dash.cell(1, 5, sweptName, text_size = size.tiny, text_color = color.white)
+    dash.cell(0, 6, "Entries", text_size = size.tiny, text_color = color.silver)
+    dash.cell(1, 6, str.tostring(signals), text_size = size.tiny, text_color = color.white)
+
+alertcondition(bullSweep, "MLS sell-side sweep", "MLS: confirmed sweep BELOW liquidity on {{ticker}} {{interval}}")
+alertcondition(bearSweep, "MLS buy-side sweep", "MLS: confirmed sweep ABOVE liquidity on {{ticker}} {{interval}}")
+alertcondition(bullMss, "MLS bullish MSS", "MLS: bullish market structure shift on {{ticker}} {{interval}}")
+alertcondition(bearMss, "MLS bearish MSS", "MLS: bearish market structure shift on {{ticker}} {{interval}}")
+alertcondition(bullEntry, "MLS long entry setup", "MLS: long FVG retest confirmation on {{ticker}} {{interval}}")
+alertcondition(bearEntry, "MLS short entry setup", "MLS: short FVG retest confirmation on {{ticker}} {{interval}}")
+if bullEntry or bearEntry
+    string sideName = bullEntry ? "LONG" : "SHORT"
+    alert("MLS " + sideName + " " + (tappedHtf ? "GRADE A" : "GRADE B") + " " + syminfo.ticker + " " + timeframe.period + " | ENTRY " + fPrice(plannedEntry) + " | SL " + fPrice(plannedStop) + " | TP " + fPrice(plannedTarget) + " | SWEEP " + sweptName, alert.freq_once_per_bar_close)

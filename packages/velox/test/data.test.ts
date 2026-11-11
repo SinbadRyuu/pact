@@ -39,7 +39,7 @@ const quarter = bars([
   [12, 12.5, 11, 11.2], // 09:15
 ])
 
-test('at 08:30 the 08:00 hour is still forming and is not given as closed', () => {
+test('10. at 08:30 the 08:00 hour is still forming and is not given as closed', () => {
   const { closed, forming } = aggregate(quarter.slice(0, 2), `15m`, `1h`)
   assert.deepEqual(closed, [])
   assert.deepEqual(forming, { time: T0, open: 10, high: 12, low: 9, close: 11.5 })
@@ -81,5 +81,5 @@ test('the cache key changes with the feed, timeframe and settings', () => {
 test('bad settings are refused', () => {
   assert.throws(() => resolveSettings({ swingLength: 0 }), RangeError)
   assert.throws(() => resolveSettings({ mitigationDepth: 0 }), RangeError)
-  assert.throws(() => resolveSettings({ minWidthATR: 2, maxWidthATR: 1 }), RangeError)
+  assert.throws(() => resolveSettings({ minHeightATR: 2, maxHeightATR: 1 }), RangeError)
 })
