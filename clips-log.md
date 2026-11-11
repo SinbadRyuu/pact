@@ -11,6 +11,20 @@ No clips yet.
 
 ## Run notes
 
+### 2026-11-11
+
+Standing instruction added: also clip streamer reactions to GTA 6 content.
+
+OpusClip still refusing every call ("MCP / API access requires the Pro, Max, or Enterprise plan"), so nothing clipped, edited or scheduled.
+
+Streamer reaction sources shortlisted (not clipped; dates and contents from search listings only):
+
+| Source | URL | Note |
+|--------|-----|------|
+| "Streamers REACT to the GTA 6 Launch Trailer (Kai Cenat, IShowSpeed, xQc & More)" | https://www.youtube.com/watch?v=k7Wdar3UIQ4 | Compilation by a third party; credit each streamer, check for the compiler's watermark |
+| "Grand Theft Auto VI: Pre-Load Now Trailer - Reaction!" | https://www.youtube.com/watch?v=HtwofeS43GU | Listed as posted 11 Nov; implies a new official "Pre-Load Now" trailer, find the Rockstar original too |
+| "GTA 6 PRE-LOAD STREAM - INSTALLING GTA 6!" | https://www.youtube.com/watch?v=w5KhaW59l-8 | Long stream, use a time range |
+
 ### 2026-11-09 (second run, evening)
 
 OpusClip connected (trial plan, no TikTok account linked). Three sources submitted, first 15 minutes of each. Nothing edited, scheduled or posted: OpusClip then refused all connector calls with "MCP / API access requires the Pro, Max, or Enterprise plan".
