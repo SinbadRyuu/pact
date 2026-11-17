@@ -42,6 +42,12 @@ The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6
 
 ➡️ See [`automation/README.md`](automation/README.md) for setup, env vars, tests and the go-live checklist.
 
+## Indicators page
+
+`/indicators` replaces the old chart page, which now 301-redirects here. It's a card grid of TradingView, MT4 and MT5 indicators stored in the database, with a platform filter, search, members-only downloads, a detail page for each indicator (`/indicators/<slug>`) and download counts.
+
+➡️ See [`indicators-page/README.md`](indicators-page/README.md) for setup, how to add an indicator, and the redirect.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.

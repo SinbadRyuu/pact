@@ -1,0 +1,7 @@
+# Netlify / Cloudflare Pages: put this file in the site's public/ folder. Must come before the SPA fallback (/* /index.html 200).
+/chart          /indicators  301
+/chart/*        /indicators  301
+/charts         /indicators  301
+/app/chart      /indicators  301
+/app/chart/*    /indicators  301
+/app/charts     /indicators  301

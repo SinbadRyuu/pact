@@ -1,0 +1,10 @@
+{
+  "redirects": [
+    { "source": "/chart", "destination": "/indicators", "statusCode": 301 },
+    { "source": "/charts", "destination": "/indicators", "statusCode": 301 },
+    { "source": "/app/chart", "destination": "/indicators", "statusCode": 301 },
+    { "source": "/app/charts", "destination": "/indicators", "statusCode": 301 },
+    { "source": "/chart/:path*", "destination": "/indicators", "statusCode": 301 },
+    { "source": "/app/chart/:path*", "destination": "/indicators", "statusCode": 301 }
+  ]
+}
