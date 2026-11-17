@@ -60,6 +60,12 @@ Adds Automation, Indicators and Power Rankings to the main nav, with SEO titles 
 
 ➡️ See [`site-navigation/README.md`](site-navigation/README.md), [`site-navigation/ENV_VARS.md`](site-navigation/ENV_VARS.md) and [`site-navigation/TESTING.md`](site-navigation/TESTING.md).
 
+## Integration preview
+
+Examples of every new page inside a copy of the app frame (header, bottom bar, your existing sections), plus a click-through preview file.
+
+➡️ See [`integration-preview/README.md`](integration-preview/README.md) and the pictures in [`integration-preview/examples/`](integration-preview/examples).
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
