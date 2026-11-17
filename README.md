@@ -36,6 +36,12 @@ The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6
 
 ➡️ See [`trade-room-signals/README.md`](trade-room-signals/README.md) for install steps, or paste [`trade-room-signals/LOVABLE_PROMPT.md`](trade-room-signals/LOVABLE_PROMPT.md) into Lovable.
 
+## Automation page
+
+`/automation` with two sections. **Instant Impact** is paid automated signals ($9.99/month through Stripe Checkout and the Customer Portal), locked on the server. **The Sniper Bot** is VT Markets copy trading with an app-first copy button.
+
+➡️ See [`automation/README.md`](automation/README.md) for setup, env vars, tests and the go-live checklist.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
