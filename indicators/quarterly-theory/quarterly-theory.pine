@@ -11,6 +11,9 @@
 //   Session (6H)   four 90-minute quarters                             AO 19:30, LO 01:30, NYO 07:30, PMO 13:30
 //   90 Minute      four 22.5-minute quarters                           T90  = start + 22.5 min
 //
+// Adaptive mode (default) draws only the cycle that fits the chart timeframe, e.g. on 5m you get
+// the 90-minute cycle's boxes, its true open and the previous 90-minute Q4 open/close — nothing else.
+//
 // It describes time and price only. Nothing here is financial advice.
 
 //@version=6
@@ -19,12 +22,13 @@ indicator("Quarterly Theory - True Opens", "QT True Opens", overlay = true, max_
 // ───────────────────────────── Inputs ─────────────────────────────
 
 G_GEN = "General"
+mode      = input.string("Adaptive", "Mode", options = ["Adaptive", "Manual"], group = G_GEN, tooltip = "Adaptive: the chart timeframe picks ONE cycle, and only that cycle's quarter boxes, true open and previous Q4 open/close are drawn.\n1m-5m = 90 Minute\n6m-15m = Session (6H)\n16m-1H = Daily\n2H-4H = Weekly\n5H-1D = Monthly\nabove 1D = Yearly\n\nManual: every cycle switched on below is drawn, and the boxes follow 'Box cycle'.")
 tz        = input.string("America/New_York", "Timezone", group = G_GEN, tooltip = "Quarterly Theory uses New York time. Leave this unless you know you need another.")
 lookback  = input.int(10, "Intraday history (days)", minval = 1, maxval = 120, group = G_GEN, tooltip = "How many days back to draw the Daily, Session and 90-minute cycles and the intraday boxes. Yearly, monthly and weekly opens are always drawn.")
-autoHide  = input.bool(true, "Hide cycles too small for the chart timeframe", group = G_GEN, tooltip = "For example, 90-minute cycles are hidden above 5m and Daily cycles above 1H.")
+autoHide  = input.bool(true, "Hide cycles too small for the chart timeframe (Manual)", group = G_GEN, tooltip = "Manual mode only. For example, 90-minute cycles are hidden above 5m and Daily cycles above 1H.")
 
 G_BOX = "Quarter boxes"
-boxCycle  = input.string("Auto", "Box cycle", options = ["Auto", "Yearly", "Monthly", "Weekly", "Daily", "Session (6H)", "90 Minute", "Off"], group = G_BOX, tooltip = "Which cycle's quarters get filled boxes. Auto: 1-5m = Session (90-min boxes), 15m-1H = Daily, 2H-4H = Weekly, up to 1D = Monthly, above = Yearly.")
+boxCycle  = input.string("Auto", "Box cycle (Manual)", options = ["Auto", "Yearly", "Monthly", "Weekly", "Daily", "Session (6H)", "90 Minute", "Off"], group = G_BOX, tooltip = "Manual mode only. Which cycle's quarters get filled boxes. Auto uses the same timeframe mapping as Adaptive mode.")
 q1Col     = input.color(color.new(color.gray, 85), "Q1", inline = "qc", group = G_BOX)
 q2Col     = input.color(color.new(color.green, 85), "Q2", inline = "qc", group = G_BOX)
 q3Col     = input.color(color.new(color.red, 85), "Q3", inline = "qc", group = G_BOX)
@@ -49,7 +53,7 @@ showTDO  = input.bool(true, "TDO  True Day Open", inline = "td", group = G_TO)
 cTDO     = input.color(#00bcd4, "", inline = "td", group = G_TO)
 showTSO  = input.bool(true, "AO / LO / NYO / PMO  True Session Opens", inline = "ts", group = G_TO)
 cTSO     = input.color(#9e9e9e, "", inline = "ts", group = G_TO)
-showT90  = input.bool(false, "T90  True 90-Minute Open", inline = "t9", group = G_TO)
+showT90  = input.bool(true, "T90  True 90-Minute Open", inline = "t9", group = G_TO)
 cT90     = input.color(#787b86, "", inline = "t9", group = G_TO)
 toWidth  = input.int(1, "Line width", minval = 1, maxval = 4, group = G_TO)
 toStyleS = input.string("Dotted", "Line style", options = ["Solid", "Dashed", "Dotted"], group = G_TO)
@@ -115,14 +119,17 @@ int n90 = int(mins / 90)
 int nId = dayId * 100 + n90
 int nQ  = int((mins - n90 * 90) / 22.5)
 
-float tfMin   = timeframe.in_seconds() / 60.0
-bool  inRange = time >= last_bar_time - lookback * 86400000
-bool  okY = not autoHide or tfMin <= 10080
-bool  okM = not autoHide or tfMin <= 1440
-bool  okW = not autoHide or tfMin <= 240
-bool  okD = not autoHide or tfMin <= 60
-bool  okS = not autoHide or tfMin <= 15
-bool  ok9 = not autoHide or tfMin <= 5
+float  tfMin   = timeframe.in_seconds() / 60.0
+bool   inRange = time >= last_bar_time - lookback * 86400000
+bool   adaptive = mode == "Adaptive"
+// The one cycle that matches the chart timeframe
+string tfCycle = tfMin <= 5 ? "90 Minute" : tfMin <= 15 ? "Session (6H)" : tfMin <= 60 ? "Daily" : tfMin <= 240 ? "Weekly" : tfMin <= 1440 ? "Monthly" : "Yearly"
+bool  okY = adaptive ? tfCycle == "Yearly"       : not autoHide or tfMin <= 10080
+bool  okM = adaptive ? tfCycle == "Monthly"      : not autoHide or tfMin <= 1440
+bool  okW = adaptive ? tfCycle == "Weekly"       : not autoHide or tfMin <= 240
+bool  okD = adaptive ? tfCycle == "Daily"        : not autoHide or tfMin <= 60
+bool  okS = adaptive ? tfCycle == "Session (6H)" : not autoHide or tfMin <= 15
+bool  ok9 = adaptive ? tfCycle == "90 Minute"    : not autoHide or tfMin <= 5
 
 // ───────────────────────────── Cycle engine ─────────────────────────────
 
@@ -203,7 +210,7 @@ c9.run(nId,   nQ, ok9 and inRange, showT90, "T90", cT90, pq490)
 
 // ───────────────────────────── Quarter boxes ─────────────────────────────
 
-string bc = boxCycle != "Auto" ? boxCycle : tfMin <= 5 ? "Session (6H)" : tfMin <= 60 ? "Daily" : tfMin <= 240 ? "Weekly" : tfMin <= 1440 ? "Monthly" : "Yearly"
+string bc = adaptive or boxCycle == "Auto" ? tfCycle : boxCycle
 
 int bId = switch bc
     "Yearly"       => yId

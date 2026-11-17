@@ -16,18 +16,19 @@ Pine Script v6 indicator for TradingView (`quarterly-theory.pine`). Paste it int
 
 All times are New York time. The trading day starts at 18:00.
 
-## Timeframes
+## Adaptive mode (default)
 
-With **Box cycle = Auto**:
+The chart timeframe picks one cycle. Only that cycle's quarter boxes, true open and previous Q4 open/close are drawn. Nothing from other cycles is shown.
 
-| Chart | Boxes |
-|---|---|
-| 1m–5m | Session (90-minute quarters) |
-| 15m–1H | Daily (6-hour sessions) |
-| 2H–4H | Weekly (days) |
-| up to 1D | Monthly (weeks) |
-| above 1D | Yearly (calendar quarters) |
+| Chart | Cycle drawn | True open | Previous Q4 |
+|---|---|---|---|
+| 1m–5m | 90 Minute (22.5-min quarters) | T90 | previous 90-min cycle |
+| 6m–15m | Session (90-min quarters) | AO / LO / NYO / PMO | previous session |
+| 16m–1H | Daily (6-hour sessions) | TDO | previous day |
+| 2H–4H | Weekly (days) | TWO | previous week |
+| 5H–1D | Monthly (weeks) | TMO | previous month |
+| above 1D | Yearly (calendar quarters) | TYO | previous year |
 
-A cycle's lines are hidden when the chart timeframe is too big for it. For example, 90-minute lines only show on 5m and below. You can turn this off in the settings.
+The on/off switches for each true open and previous Q4 still apply. Switch **Mode** to **Manual** to draw several cycles at once.
 
 TradingView keeps at most 500 lines, 500 boxes and 500 labels per script, so the oldest drawings drop off on low timeframes. Use **Intraday history (days)** to set how far back intraday cycles are drawn.
