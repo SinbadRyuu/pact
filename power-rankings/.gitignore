@@ -1,0 +1,4 @@
+node_modules
+preview/dist
+.env
+supabase/functions/*/deno.lock

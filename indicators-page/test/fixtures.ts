@@ -1,0 +1,56 @@
+import type { IndicatorRecord } from "../server/types";
+
+const base = {
+  longDescription: null,
+  screenshots: [],
+  installSteps: [],
+  changelog: [],
+  fileUrl: null,
+  tradingviewUrl: null,
+  sortOrder: 0,
+  downloadCount: 0,
+  image: null,
+};
+
+export const INDICATORS: IndicatorRecord[] = [
+  {
+    ...base,
+    id: "00000000-0000-4000-8000-000000000001",
+    slug: "vt-structure",
+    name: "VT Structure",
+    description: "Market structure with BOS/CHoCH, swing labels and a Fibonacci zone.",
+    longDescription: "VT Structure maps market structure for you.\n\nIt adds EMAs and a Fibonacci zone.",
+    platform: "tradingview",
+    version: "1.0",
+    tradingviewUrl: "https://www.tradingview.com/script/abc-vt-structure/",
+    accessLevel: "members",
+    updatedAt: "2026-10-13T00:00:00.000Z",
+    changelog: [{ version: "1.0", date: "2026-10-13", changes: ["First release"] }],
+    downloadCount: 41,
+  },
+  {
+    ...base,
+    id: "00000000-0000-4000-8000-000000000002",
+    slug: "session-boxes",
+    name: "Session Boxes",
+    description: "Asia, London and New York session ranges drawn on your chart.",
+    platform: "mt5",
+    version: "2.3",
+    fileUrl: "https://files.vtimpact.test/session-boxes.ex5",
+    accessLevel: "free",
+    updatedAt: "2026-11-02T00:00:00.000Z",
+    installSteps: ["Copy the file into MQL5/Indicators."],
+  },
+  {
+    ...base,
+    id: "00000000-0000-4000-8000-000000000003",
+    slug: "gold-volatility-bands",
+    name: "Gold Volatility Bands",
+    description: "ATR bands tuned for XAUUSD.",
+    platform: "mt4",
+    version: "1.4",
+    fileUrl: "storage:indicators/gold-volatility-bands-1.4.ex4",
+    accessLevel: "members",
+    updatedAt: "2026-09-20T00:00:00.000Z",
+  },
+];

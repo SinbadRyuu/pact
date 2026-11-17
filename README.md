@@ -36,6 +36,36 @@ The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6
 
 ➡️ See [`trade-room-signals/README.md`](trade-room-signals/README.md) for install steps, or paste [`trade-room-signals/LOVABLE_PROMPT.md`](trade-room-signals/LOVABLE_PROMPT.md) into Lovable.
 
+## Automation page
+
+`/automation` with two sections. **Instant Impact** is paid automated signals ($9.99/month through Stripe Checkout and the Customer Portal), locked on the server. **The Sniper Bot** is VT Markets copy trading with an app-first copy button.
+
+➡️ See [`automation/README.md`](automation/README.md) for setup, env vars, tests and the go-live checklist.
+
+## Indicators page
+
+`/indicators` replaces the old chart page, which now 301-redirects here. It's a card grid of TradingView, MT4 and MT5 indicators stored in the database, with a platform filter, search, members-only downloads, a detail page for each indicator (`/indicators/<slug>`) and download counts.
+
+➡️ See [`indicators-page/README.md`](indicators-page/README.md) for setup, how to add an indicator, and the redirect.
+
+## Power Rankings
+
+`/signals/rankings` (also a tab on the signals page) ranks every signal provider from the closed-trade history. It has a gold, silver and bronze podium with mini equity curves, a sortable leaderboard, period filters (week, month, year, custom, or jump to any past one), live trades, and a profile for each provider with charts, a monthly breakdown and a CSV-exportable trade history.
+
+➡️ See [`power-rankings/README.md`](power-rankings/README.md) for setup, how each stat is calculated, and the column mapping to check.
+
+## Navigation, SEO and launch
+
+Adds Automation and Power Rankings as cards in the Home page's GO TO section, with SEO titles and meta descriptions (including link previews for LinkedIn and TikTok shares). Also has the complete list of env vars and the test report.
+
+➡️ See [`site-navigation/README.md`](site-navigation/README.md), [`site-navigation/ENV_VARS.md`](site-navigation/ENV_VARS.md) and [`site-navigation/TESTING.md`](site-navigation/TESTING.md).
+
+## Integration preview
+
+Examples of every new page inside a copy of the app frame (header, bottom bar, your existing sections), plus a click-through preview file.
+
+➡️ See [`integration-preview/README.md`](integration-preview/README.md) and the pictures in [`integration-preview/examples/`](integration-preview/examples).
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.

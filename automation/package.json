@@ -1,0 +1,28 @@
+{
+  "name": "@vtimpact/automation",
+  "private": true,
+  "version": "1.0.0",
+  "description": "The /automation page: Instant Impact paid signals (Stripe) and The Sniper Bot (VT Markets copy trading).",
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "preview": "node preview/build-preview.mjs && node preview/serve.mjs",
+    "stripe:e2e": "tsx scripts/stripe-e2e.ts"
+  },
+  "dependencies": {
+    "stripe": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.24.0",
+    "pg": "^8.13.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}
