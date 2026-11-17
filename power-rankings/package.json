@@ -1,0 +1,25 @@
+{
+  "name": "@vtimpact/power-rankings",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Power Rankings: every signal provider ranked from the trade history, with podium, leaderboard and provider profiles.",
+  "type": "module",
+  "scripts": {
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build:edge": "node scripts/build-edge.mjs",
+    "preview": "node preview/build-preview.mjs && node preview/serve.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "esbuild": "^0.24.0",
+    "pg": "^8.13.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  }
+}

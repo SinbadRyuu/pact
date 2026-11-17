@@ -48,6 +48,12 @@ The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6
 
 ➡️ See [`indicators-page/README.md`](indicators-page/README.md) for setup, how to add an indicator, and the redirect.
 
+## Power Rankings
+
+`/signals/rankings` (also a tab on the signals page) ranks every signal provider from the closed-trade history. It has a gold, silver and bronze podium with mini equity curves, a sortable leaderboard, period filters (week, month, year, custom, or jump to any past one), live trades, and a profile for each provider with charts, a monthly breakdown and a CSV-exportable trade history.
+
+➡️ See [`power-rankings/README.md`](power-rankings/README.md) for setup, how each stat is calculated, and the column mapping to check.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
