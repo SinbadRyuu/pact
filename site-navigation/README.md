@@ -1,43 +1,33 @@
 # Navigation, SEO and launch
 
 This folder finishes off the three new features:
-- puts **Automation**, **Power Rankings** and **Indicators** on the **Home** (main) page, plus the main nav
+- adds **Automation**, **Indicators** and **Power Rankings** to the main nav
 - sets their SEO titles and descriptions, including in link previews
 - lists **every env var** ([`ENV_VARS.md`](ENV_VARS.md))
 - has the **test report** ([`TESTING.md`](TESTING.md))
 
-## On the Home page
+## Main nav
 
-The three new pages sit on **Home** as cards near the top, not in the More menu. On a phone they're full-width, one under another; on wider screens they sit three across. Each card has an icon, a one-line description and a **live line**:
+`src/nav.ts` has the three entries, each with a label, short label (for a phone bottom bar), icon, link, and the paths that should highlight it:
 
-| Card | Live line |
-| --- | --- |
-| Automation | "Instant Impact from $9.99/month", or "You're subscribed to Instant Impact" for subscribers |
-| Power Rankings | "#1 this week: Aurum +583 pips". Early in the week, before anyone has 10 trades, it shows this month's #1 and opens the rankings on this month. |
-| Indicators | "4 indicators ready to use" |
+| Item | Link | Highlighted on |
+| --- | --- | --- |
+| Power Rankings | `/signals/rankings` | `/signals/rankings`, `/signals/providers/*` |
+| Automation | `/automation` | `/automation/*` |
+| Indicators | `/indicators` | `/indicators/*` (and the old chart URL while it redirects) |
 
-If an API can't be reached, the card shows a plain description instead, so it always renders.
+Automation and Power Rankings show a small gold **New** badge until 31 Jan 2027. Change `newUntil` in `nav.ts` to adjust it.
 
-```tsx
-import { HomeShortcuts } from "@/site-navigation/HomeShortcuts";
-
-// near the top of the existing Home page, under its greeting:
-<HomeShortcuts
-  Link={Link}
-  api={{
-    automation: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/automation`,
-    indicators: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/indicators`,
-    rankings: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rankings`,
-  }}
-  getAccessToken={async () => (await supabase.auth.getSession()).data.session?.access_token ?? null}
-/>
+**If the nav maps over a list** (most do), merge the items in:
+```ts
+import { withNewItems } from "./site-navigation/nav";
+const items = withNewItems(NAV_ITEMS, (n) => ({ label: n.label, href: n.href, icon: n.icon }));
 ```
+This puts them right after **Signals**, in the order Power Rankings, Automation, Indicators, and removes the old chart link.
 
-See `integration-preview/examples/6-home.png`. Automation and Power Rankings show a small gold **New** badge until 31 Jan 2027 (`newUntil` in `src/nav.ts`).
+**Otherwise,** drop in the ready-made links: `<NewNavLinks pathname={location.pathname} Link={Link} />`. Pass `compact` for the short labels in a phone menu or bottom bar. They're 44px tall, so they're easy to tap.
 
-**Bottom bar:** it stays Home, Chart, Signals, News, Portals, More. Six is the most that stays readable on a phone. Power Rankings is also the fifth tab on Signals, and on Automation or Indicators the bar highlights **Home**, since that's where people reach them from.
-
-**Desktop or top nav (optional):** if the site has a wider nav, `withNewItems()` from `src/nav.ts` slots the three in after Signals and removes the old chart link. `<NewNavLinks>` gives ready-made links.
+On the signals page itself, add `<SignalsTabs current="signals" />` from `power-rankings/` so Signals and Power Rankings appear as tabs.
 
 ## SEO titles and descriptions
 

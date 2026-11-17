@@ -46,13 +46,8 @@ const BOTTOM = [
 ];
 
 export function BottomNav({ current, go }: { current: string; go: (page: string) => void }) {
-  // Automation and Indicators are reached from the Home cards, so Home stays lit on them.
   const active = (p: string) =>
-    p === "/home"
-      ? /^\/(home|automation|indicators)(\/|$)/.test(current)
-      : p === "/signals/rankings"
-        ? current.startsWith("/signals")
-        : current === p;
+    p === "/more" ? /^\/(more|automation|indicators)/.test(current) : p === "/signals/rankings" ? current.startsWith("/signals") : current === p;
   return (
     <nav className="app-bottom" aria-label="Main">
       {BOTTOM.map((b) => (
@@ -205,24 +200,3 @@ export const SIGNALS_TABS = [
   { label: "Record", href: "/signals/record" },
   { label: "Rule Health", href: "/signals/rule-health" },
 ];
-
-/** Top of the existing Home page (greeting). Your real Home has its own; this stands in for it. */
-export function HomeHeader() {
-  return (
-    <header className="x-pagehead">
-      <p className="x-hello">Good morning</p>
-      <h1 className="x-title">Home</h1>
-      <p className="x-lead">Everything VT Impact, in one place.</p>
-    </header>
-  );
-}
-
-/** Stand-in for the rest of the existing Home page, which doesn't change. */
-export function HomeRest() {
-  return (
-    <div className="x-stack">
-      <div className="x-placeholder">Your existing Home content continues here, unchanged.</div>
-      <div className="x-placeholder x-placeholder--short" />
-    </div>
-  );
-}

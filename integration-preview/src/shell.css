@@ -117,6 +117,3 @@ body.shot .pv-bar { display: none; }
 .pv-bar select { background: #111; color: #fff; border: 1px solid #444; border-radius: 6px; padding: 4px; }
 .pv-bar ~ .app .app-header { top: 0; }
 body.show-new .is-new { outline: 2px dashed #ffd25e; outline-offset: 6px; border-radius: 12px; }
-.x-hello { margin: 6px 0 6px; color: #3ee8ff; font: 700 13px var(--font-display); letter-spacing: .26em; text-transform: uppercase; }
-.x-placeholder { display: grid; place-items: center; min-height: 180px; padding: 18px; border: 1.5px dashed rgba(139,108,255,.35); border-radius: 18px; color: var(--color-text-muted); text-align: center; background: rgba(10,14,34,.5); }
-.x-placeholder--short { min-height: 120px; }
