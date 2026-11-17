@@ -19,7 +19,7 @@ describe("Postgres store", { skip: !url && "set TEST_DATABASE_URL to run" }, () 
   before(async () => {
     pool = new pg.Pool({ connectionString: url });
     sql = { query: async (text, params) => (await pool.query(text, params as unknown[])).rows };
-    await pool.query("drop table if exists public.instant_impact_subscriptions, public.stripe_webhook_events, public.signals");
+    await pool.query("drop table if exists public.instant_impact_subscriptions, public.stripe_webhook_events, public.signals cascade");
     const migration = readFileSync(new URL("../migrations/001_instant_impact_billing.sql", import.meta.url), "utf8");
     await pool.query(migration);
     await pool.query(migration); // safe to run twice

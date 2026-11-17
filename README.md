@@ -54,6 +54,12 @@ The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6
 
 ➡️ See [`power-rankings/README.md`](power-rankings/README.md) for setup, how each stat is calculated, and the column mapping to check.
 
+## Navigation, SEO and launch
+
+Adds Automation, Indicators and Power Rankings to the main nav, with SEO titles and meta descriptions (including link previews for LinkedIn and TikTok shares). Also has the complete list of env vars and the test report.
+
+➡️ See [`site-navigation/README.md`](site-navigation/README.md), [`site-navigation/ENV_VARS.md`](site-navigation/ENV_VARS.md) and [`site-navigation/TESTING.md`](site-navigation/TESTING.md).
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
