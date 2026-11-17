@@ -74,3 +74,29 @@ describe("SEO", () => {
     assert.doesNotMatch(s, /subscribe|success/);
   });
 });
+
+import { GO_TO_ADDITIONS, withGoToCards } from "../src/goTo";
+
+describe("Home GO TO cards", () => {
+  const existing = ["Signals", "Trader Signals", "Chart", "Indicators", "News", "Dashboard", "Trade Journal", "Phone Alerts", "Everything Else"].map(
+    (title) => ({ title, href: `/${title.toLowerCase().replace(/ /g, "-")}`, description: "…" }),
+  );
+  const toCard = (c: (typeof GO_TO_ADDITIONS)[number]) => ({ title: c.title, href: c.href, description: c.description });
+
+  it("adds Automation and Power Rankings just before Everything Else", () => {
+    const out = withGoToCards(existing, toCard);
+    assert.deepEqual(out.map((c) => c.title).slice(-4), ["Phone Alerts", "Automation", "Power Rankings", "Everything Else"]);
+    assert.equal(out.length, 11);
+  });
+
+  it("doesn't add a card twice and keeps the existing Indicators card", () => {
+    const once = withGoToCards(existing, toCard);
+    assert.equal(withGoToCards(once, toCard).length, 11);
+    assert.equal(once.filter((c) => c.title === "Indicators").length, 1);
+  });
+
+  it("can update the Everything Else wording", () => {
+    const out = withGoToCards(existing, toCard, { updateCopy: (c, d) => ({ ...c, description: d }) });
+    assert.equal(out.find((c) => c.title === "Everything Else")!.description, "Practice, settings and more");
+  });
+});

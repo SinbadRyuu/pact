@@ -9,7 +9,7 @@ Run on 17 Nov 2026 with Node 22, PostgreSQL 16 and Deno 2.5 (to run the Supabase
 | Stripe flow, webhooks, gating (`automation/`) | ✅ 25 tests + 1 Postgres test pass |
 | Indicators (`indicators-page/`) | ✅ 11 tests + 2 Postgres tests pass |
 | Power Rankings (`power-rankings/`) | ✅ 16 tests + 5 Postgres tests pass |
-| Navigation and SEO (`site-navigation/`) | ✅ 7 tests pass |
+| Navigation, Home GO TO cards and SEO (`site-navigation/`) | ✅ 10 tests pass |
 | Edge Functions under Deno, against Postgres | ✅ all three serve requests; a signed webhook is stored and a tampered one is rejected |
 | Phone (390px) and desktop (1280px) screenshots | ✅ no sideways scrolling on any page; layout issues found during the review were fixed |
 | **Stripe end-to-end against real Stripe test mode** | ⚠️ **Not run here.** The script is ready (`npm run stripe:e2e`), but this environment has no Stripe keys. It takes about 2 minutes with your `sk_test_` key; see below. |

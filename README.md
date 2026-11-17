@@ -56,7 +56,7 @@ The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6
 
 ## Navigation, SEO and launch
 
-Adds Automation, Indicators and Power Rankings to the main nav, with SEO titles and meta descriptions (including link previews for LinkedIn and TikTok shares). Also has the complete list of env vars and the test report.
+Adds Automation and Power Rankings as cards in the Home page's GO TO section, with SEO titles and meta descriptions (including link previews for LinkedIn and TikTok shares). Also has the complete list of env vars and the test report.
 
 ➡️ See [`site-navigation/README.md`](site-navigation/README.md), [`site-navigation/ENV_VARS.md`](site-navigation/ENV_VARS.md) and [`site-navigation/TESTING.md`](site-navigation/TESTING.md).
 

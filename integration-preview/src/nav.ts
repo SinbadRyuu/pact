@@ -11,7 +11,7 @@ export const PERSONAS: { key: Persona; label: string }[] = [
 ];
 
 export const persona = (): Persona => (new URLSearchParams(location.search).get("as") as Persona) || "visitor";
-export const currentPage = () => new URLSearchParams(location.search).get("page") || "/automation";
+export const currentPage = () => new URLSearchParams(location.search).get("page") || "/home";
 
 /** Turns an app path ("/signals/providers/x?period=y#tab") into a preview URL ("?page=/signals/providers/x&period=y&as=…#tab"). */
 export function previewUrl(appPath: string, override: Record<string, string> = {}): string {

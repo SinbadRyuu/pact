@@ -12,12 +12,14 @@ import { configureRankings } from "../../power-rankings/src/adapters";
 import { SignalsTabs } from "../../power-rankings/src/parts";
 import { ProviderPage } from "../../power-rankings/src/ProviderPage";
 import { RankingsSection } from "../../power-rankings/src/RankingsPage";
-import { NewNavLinks } from "../../site-navigation/src/NavLinks";
+
 import {
   AppHeader,
   AutomationHeader,
   BottomNav,
   ExistingIndicators,
+  HomeGoTo,
+  HomeTop,
   IndicatorsHeader,
   SIGNALS_TABS,
   SignalsHeader,
@@ -112,16 +114,12 @@ function Page({ page }: { page: string }) {
       </>
     );
   if ((m = /^\/signals\/providers\/([^/]+)$/.exec(page))) return <ProviderPage slug={decodeURIComponent(m[1])} />;
-  if (page === "/more")
+  if (page === "/home")
     return (
-      <div className="x-sheet">
-        <h1 className="x-h2">More</h1>
-        <p className="x-lead">The three new pages, as they'd appear in the More menu (and the desktop nav).</p>
-        <div className="x-sheet__list is-new">
-          <NewNavLinks pathname={page} Link={PreviewLink} />
-        </div>
-        <p className="x-note">Your existing More items stay as they are, above or below these.</p>
-      </div>
+      <>
+        <HomeTop />
+        <HomeGoTo Link={PreviewLink} />
+      </>
     );
   if (page === "/sign-in")
     return (
@@ -153,12 +151,12 @@ function Page({ page }: { page: string }) {
 }
 
 const PAGES = [
+  ["/home", "Home (GO TO cards)"],
   ["/automation", "Automation"],
   ["/indicators", "Indicators"],
   ["/indicators/vt-structure", "Indicator detail"],
   ["/signals/rankings", "Power Rankings"],
   ["/signals/providers/aurum", "Provider profile"],
-  ["/more", "More menu"],
 ];
 
 function Controls({ page }: { page: string }) {

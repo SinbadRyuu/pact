@@ -1,12 +1,36 @@
 # Navigation, SEO and launch
 
 This folder finishes off the three new features:
-- adds **Automation**, **Indicators** and **Power Rankings** to the main nav
+- adds **Automation** and **Power Rankings** as cards in the Home page's **GO TO** section (Indicators already has one)
 - sets their SEO titles and descriptions, including in link previews
 - lists **every env var** ([`ENV_VARS.md`](ENV_VARS.md))
 - has the **test report** ([`TESTING.md`](TESTING.md))
 
-## Main nav
+## Home page: GO TO cards
+
+Home already has a **GO TO** section of cards: Signals, Trader Signals, Chart, Indicators, News, Dashboard, Trade Journal, Phone Alerts and Everything Else. The new pages are **two more cards in that same section**, using the existing card component, so they look exactly like the others:
+
+| Card | Description | Opens | Icon (lucide) |
+| --- | --- | --- | --- |
+| Automation | Instant Impact signals and The Sniper Bot | `/automation` | `bot` |
+| Power Rankings | Every signal provider ranked by real trades | `/signals/rankings` | `trophy` |
+
+Indicators already has a card, which now opens the page with the new VT IMPACT INDICATORS panel.
+
+They go **just before Everything Else**, which stays last. On desktop (five per row) that fills the second row: Dashboard, Trade Journal, Phone Alerts, Automation, Power Rankings. Add them by hand, or with the helper:
+
+```ts
+import { withGoToCards } from "@/site-navigation/goTo";
+
+const GO_TO = withGoToCards(EXISTING_GO_TO, (c) => ({ title: c.title, description: c.description, href: c.href, icon: c.lucide }), {
+  // optional: "Everything Else" → "Practice, settings and more" (Automation has its own card now) and a wider Indicators line
+  updateCopy: (card, description) => ({ ...card, description }),
+});
+```
+
+`src/goTo.ts` also has each icon as SVG path data, in case the card component takes raw SVG rather than a lucide name. See `integration-preview/examples/6-home.png`.
+
+## Other navigation (optional)
 
 `src/nav.ts` has the three entries, each with a label, short label (for a phone bottom bar), icon, link, and the paths that should highlight it:
 
@@ -64,5 +88,5 @@ Add the output of `sitemapEntries()` to `sitemap.xml`. For indicator and provide
 
 ## Tests
 ```bash
-cd site-navigation && npm install && npm test     # 7 tests: nav matching/order, SEO lengths and consistency, meta injection, sitemap
+cd site-navigation && npm install && npm test     # 10 tests: GO TO cards, nav matching/order, SEO lengths and consistency, meta injection, sitemap
 ```
