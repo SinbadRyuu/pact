@@ -1,5 +1,5 @@
 // Small shared pieces: avatar, rank change arrow, signals tabs, period picker.
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { jumpOptions, QUICK_PERIODS } from "../shared/periods";
 import type { LeaderboardRow, Provider } from "../shared/types";
 import { AppLink } from "./api";
@@ -37,18 +37,36 @@ export function RankChange({ change }: { change: LeaderboardRow["rankChange"] })
   );
 }
 
-/** "Signals | Power Rankings" tabs. Also exported for the main signals page to show the same tabs. */
+/**
+ * The Signals page tab row with Power Rankings at the end, pill style (Signals | Traders | Record | Rule Health | Power
+ * Rankings). Uses the app's own tab list from configureRankings({ signalsTabs }); falls back to Signals | Power Rankings.
+ */
+export const RANKINGS_TAB = { label: "Power Rankings", href: "/signals/rankings" } as const;
+
 export function SignalsTabs({ current }: { current: "signals" | "rankings" }) {
-  const signalsHref = rankingsDeps().signalsHref ?? "/signals";
+  const d = rankingsDeps();
+  const base = d.signalsTabs ?? [{ label: "Signals", href: d.signalsHref ?? "/signals" }];
+  const tabs = [...base.filter((t) => t.href !== RANKINGS_TAB.href), RANKINGS_TAB];
+  const ref = useRef<HTMLElement>(null);
+  // On a phone the row scrolls sideways; bring the current tab into view so people can see where they are.
+  useEffect(() => {
+    const nav = ref.current;
+    const on = nav?.querySelector<HTMLElement>("[aria-current=page]");
+    if (nav && on) nav.scrollLeft = on.offsetLeft + on.offsetWidth - nav.clientWidth + 24;
+  }, []);
   return (
-    <nav className="pr-tabs" aria-label="Signals">
-      <AppLink to={signalsHref} className={`pr-tab ${current === "signals" ? "is-on" : ""}`}>
-        Signals
-      </AppLink>
-      <AppLink to="/signals/rankings" className={`pr-tab ${current === "rankings" ? "is-on" : ""}`}>
-        Power Rankings
-      </AppLink>
-    </nav>
+    <div className="pr pr--embedded pr--tabs">
+      <nav className="pr-tabs" aria-label="Signals sections" ref={ref}>
+        {tabs.map((t, i) => {
+          const on = current === "rankings" ? t.href === RANKINGS_TAB.href : i === 0;
+          return (
+            <AppLink key={t.href} to={t.href} className={`pr-tab ${on ? "is-on" : ""}`} aria-current={on ? "page" : undefined}>
+              {t.label}
+            </AppLink>
+          );
+        })}
+      </nav>
+    </div>
   );
 }
 

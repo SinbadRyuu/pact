@@ -588,3 +588,134 @@
     transition: none !important;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   App look: matches the existing Indicators page ("MY INDICATORS", "YOUR SAVED SETTINGS", the Momentum list).
+   ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+.ind {
+  --ind-panel-line: color-mix(in srgb, var(--ind-cyan) 22%, var(--ind-line));
+  --ind-grad: linear-gradient(100deg, var(--ind-cyan) 0%, #8b6cff 62%, var(--palette-magenta, #ff4fd8) 100%);
+}
+.ind--embedded {
+  background: transparent;
+  min-height: 0;
+  padding: 0;
+}
+.ind-panel {
+  border: 1px solid var(--ind-panel-line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--palette-hull, #0a0e22) 88%, transparent);
+  margin-bottom: 24px;
+}
+.ind-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 72px;
+  padding: 12px 14px 12px 20px;
+  border-bottom: 1px solid var(--ind-panel-line);
+  background: color-mix(in srgb, var(--ind-cyan) 3%, transparent);
+}
+.ind-panel__title {
+  margin: 0;
+  font: 700 0.92rem/1.2 var(--ind-display);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+}
+.ind-panel__tools {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.ind-help {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--ind-panel-line);
+  background: transparent;
+  color: var(--ind-text);
+  font: 500 1rem var(--ind-sans);
+  cursor: pointer;
+}
+.ind-help[aria-expanded="true"] {
+  color: var(--ind-cyan);
+  border-color: var(--ind-cyan);
+}
+.ind-panel__help {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--ind-panel-line);
+  border-left: 4px solid var(--ind-cyan);
+  background: color-mix(in srgb, var(--ind-cyan) 7%, var(--palette-hull, #0a0e22));
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.ind-panel__help p {
+  margin: 0;
+}
+.ind-panel__body {
+  padding: 4px 16px 18px;
+}
+.ind-panel .ind-toolbar {
+  position: static;
+  background: none;
+  padding-top: 14px;
+}
+.ind-panel .ind-risk {
+  margin-top: 18px;
+}
+/* Cards: like the catalog list ("MACD … How it works · Save settings"). */
+.ind-card {
+  border-radius: 14px;
+  border-color: var(--ind-panel-line);
+  background: color-mix(in srgb, var(--ind-bg) 60%, var(--palette-hull, #0a0e22));
+}
+.ind-card:hover {
+  box-shadow: none;
+}
+.ind-card__title {
+  font: 600 1.15rem/1.25 var(--ind-sans);
+}
+.ind-chip {
+  min-height: 42px;
+  font-size: 0.95rem;
+}
+.ind-chip.is-on {
+  background: color-mix(in srgb, var(--ind-text) 6%, transparent);
+  border-color: var(--ind-panel-line);
+  color: var(--ind-text);
+}
+.ind-btn {
+  border-radius: 14px;
+  min-height: 48px;
+}
+.ind-btn--primary,
+.ind-btn--primary:hover:not(:disabled) {
+  background: var(--ind-grad);
+  border-color: transparent;
+  color: #060818;
+}
+.ind-btn--ghost {
+  border: 0;
+  color: var(--ind-cyan);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  padding-inline: 8px;
+}
+.ind-btn--locked {
+  border-radius: 14px;
+}
+.ind-search {
+  border-radius: 14px;
+  min-height: 52px;
+  border-color: var(--ind-panel-line);
+  background: var(--palette-hull, #0a0e22);
+}
+
+/* Inside the app's layout: the layout already draws the background grid and the side padding. */
+.ind {
+  background: transparent;
+  min-height: 0;
+  padding: 0 0 24px;
+}

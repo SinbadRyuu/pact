@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { api, type AutomationState, type FeedSignal, openPortal, startCheckout } from "./api";
 import { formatDate, formatEntry, formatPrice, STATUS_LABEL, timeAgo } from "./format";
+import { PanelHead } from "./PanelHead";
 import { RiskWarning } from "./RiskWarning";
 
 const FEATURES = [
@@ -44,15 +45,19 @@ export function InstantImpactSection({ state, reload }: { state: AutomationState
 
   return (
     <section id="instant-impact" className="aut-card aut-card--instant" aria-labelledby="ii-title">
-      <header className="aut-card__head">
-        <span className="aut-eyebrow">Automated signals</span>
-        <h2 id="ii-title" className="aut-card__title">
-          Instant Impact
-        </h2>
-        <p className="aut-card__lead">
-          Our signals, delivered automatically to your phone the second they're posted. No waiting for the group to catch up.
-        </p>
-      </header>
+      <PanelHead
+        id="ii-title"
+        title="Instant Impact"
+        help={
+          <p>
+            A monthly subscription that sends every VT Impact signal to you the moment it's posted, with entry, stop loss and targets.
+            Cancel any time from "Manage subscription". Payments are handled by Stripe.
+          </p>
+        }
+      />
+      <p className="aut-card__lead">
+        Our signals, delivered automatically to your phone the second they're posted. No waiting for the group to catch up.
+      </p>
 
       <div className="aut-instant">
         <div className="aut-instant__offer">

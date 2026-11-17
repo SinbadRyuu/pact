@@ -920,3 +920,191 @@
     transition: none !important;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   App look: matches the existing Signals page (pill tabs, "GOLD SIGNALS ?" panels, gradient "Apply filters").
+   ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+.pr {
+  --pr-panel-line: color-mix(in srgb, var(--pr-cyan) 22%, var(--pr-line));
+  --pr-grad: linear-gradient(100deg, var(--pr-cyan) 0%, #8b6cff 62%, var(--palette-magenta, #ff4fd8) 100%);
+}
+.pr--embedded {
+  background: transparent;
+  min-height: 0;
+  padding: 0;
+}
+
+/* Pill tabs: Signals | Traders | Record | Rule Health | Power Rankings */
+.pr-tabs {
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--pr-panel-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--pr-surface) 80%, transparent);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.pr-tabs::-webkit-scrollbar {
+  display: none;
+}
+.pr-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  min-height: 46px;
+  margin: 0;
+  padding: 0 18px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font: 500 1rem var(--pr-sans);
+}
+.pr-tab.is-on {
+  border-color: var(--pr-panel-line);
+  background: color-mix(in srgb, var(--pr-text) 6%, transparent);
+}
+
+/* Panels */
+.pr-panel,
+.pr-section {
+  border: 1px solid var(--pr-panel-line);
+  border-radius: 18px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--pr-surface) 88%, transparent);
+  margin: 0 0 20px;
+  padding: 0;
+}
+.pr-panel__head,
+.pr-section > .pr-h2,
+.pr-section > .pr-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-height: 72px;
+  margin: 0;
+  padding: 12px 14px 12px 20px;
+  border-bottom: 1px solid var(--pr-panel-line);
+  background: color-mix(in srgb, var(--pr-cyan) 3%, transparent);
+}
+.pr-panel__title,
+.pr-section .pr-h2 {
+  margin: 0;
+  font: 700 0.92rem/1.2 var(--pr-display);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+}
+.pr-section .pr-h2__note {
+  flex-basis: 100%;
+  letter-spacing: 0;
+  text-transform: none;
+  font-weight: 400;
+}
+.pr-section > :not(.pr-h2):not(.pr-section__head) {
+  margin: 16px;
+}
+.pr-section .pr-chart {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+.pr-panel__tools {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.pr-help {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--pr-panel-line);
+  background: transparent;
+  color: var(--pr-text);
+  font: 500 1rem var(--pr-sans);
+  cursor: pointer;
+}
+.pr-help[aria-expanded="true"] {
+  color: var(--pr-cyan);
+  border-color: var(--pr-cyan);
+}
+.pr-panel__help {
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--pr-panel-line);
+  border-left: 4px solid var(--pr-cyan);
+  background: color-mix(in srgb, var(--pr-cyan) 7%, var(--pr-surface));
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.pr-panel__help p {
+  margin: 0;
+}
+.pr-panel__body {
+  padding: 16px;
+}
+.pr-panel > .pr-tablewrap {
+  border: 0;
+  border-radius: 0;
+}
+.pr-panel .pr-livelist {
+  margin: 0;
+}
+.pr-panel.is-refreshing {
+  opacity: 0.6;
+}
+
+/* Controls */
+.pr-chip {
+  min-height: 42px;
+  font-size: 0.95rem;
+}
+.pr-chip.is-on {
+  background: color-mix(in srgb, var(--pr-text) 6%, transparent);
+  border-color: var(--pr-panel-line);
+  color: var(--pr-text);
+}
+.pr-select select,
+.pr-custom input,
+.pr-filters input,
+.pr-filters select {
+  min-height: 52px;
+  border-radius: 14px;
+  border-color: color-mix(in srgb, var(--pr-text) 22%, transparent);
+  background: var(--pr-bg);
+}
+.pr-btn {
+  border-radius: 14px;
+  min-height: 48px;
+}
+.pr-btn--primary {
+  background: var(--pr-grad);
+  border-color: transparent;
+}
+.pr-podium {
+  margin-top: 26px;
+}
+.pr-tile {
+  border-color: var(--pr-panel-line);
+  border-radius: 16px;
+}
+
+/* Inside the app's layout: the layout already draws the background grid and the side padding. */
+.pr {
+  background: transparent;
+  min-height: 0;
+  padding: 0 0 24px;
+}
+
+.pr--tabs {
+  padding: 0;
+  margin-bottom: 18px;
+}
+.pr--tabs .pr-tabs {
+  margin: 0;
+  scroll-behavior: auto;
+}
+.pr-section > .pr-h2 {
+  justify-content: flex-start;
+}
+.pr-section__head .pr-h2 {
+  flex: 1 1 60%;
+}

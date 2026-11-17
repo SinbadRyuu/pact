@@ -675,3 +675,173 @@
     transition: none !important;
   }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+   App look: matches the existing vtimpact.com pages (Automation strategy builder, Indicators, Signals).
+   Panels with a letter-spaced header row and a round "?" button, gradient primary buttons, pill tabs.
+   ────────────────────────────────────────────────────────────────────────────────────────────────────────────── */
+.aut {
+  --aut-panel-line: color-mix(in srgb, var(--aut-cyan) 22%, var(--aut-line));
+  --aut-grad: linear-gradient(100deg, var(--aut-cyan) 0%, #8b6cff 62%, var(--aut-magenta) 100%);
+}
+
+/* Embedded inside an existing page: the page already has the background, padding and bottom bar. */
+.aut--embedded {
+  background: transparent;
+  min-height: 0;
+  padding: 0;
+}
+
+.aut-card {
+  padding: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid var(--aut-panel-line);
+  background: color-mix(in srgb, var(--palette-hull, #0a0e22) 88%, transparent);
+  box-shadow: none;
+}
+.aut-card--instant,
+.aut-card--sniper {
+  border-color: var(--aut-panel-line);
+  box-shadow: none;
+}
+.aut-card > :not(.aut-panel__head):not(.aut-panel__help) {
+  margin-left: 18px;
+  margin-right: 18px;
+}
+.aut-card > .aut-card__lead {
+  margin-top: 16px;
+  margin-bottom: 18px;
+}
+.aut-card > :last-child {
+  margin-bottom: 18px;
+}
+.aut-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 72px;
+  padding: 12px 14px 12px 20px;
+  border-bottom: 1px solid var(--aut-panel-line);
+  background: color-mix(in srgb, var(--aut-cyan) 3%, transparent);
+}
+.aut-panel__title {
+  margin: 0;
+  font: 700 0.92rem/1.2 var(--aut-display);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+}
+.aut-panel__tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.aut-help {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 50%;
+  border: 1px solid var(--aut-panel-line);
+  background: transparent;
+  color: var(--aut-text);
+  font: 500 1rem var(--aut-sans);
+  cursor: pointer;
+}
+.aut-help[aria-expanded="true"] {
+  border-color: var(--aut-cyan);
+  color: var(--aut-cyan);
+}
+.aut-panel__help {
+  margin: 0;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--aut-panel-line);
+  border-left: 4px solid var(--aut-cyan);
+  background: color-mix(in srgb, var(--aut-cyan) 7%, var(--palette-hull, #0a0e22));
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+.aut-panel__help p {
+  margin: 0;
+}
+
+/* Buttons: gradient primary like "New strategy" / "Apply filters"; outline secondary like "+ Add a script". */
+.aut-btn {
+  border-radius: 14px;
+  min-height: 52px;
+}
+.aut-btn--primary,
+.aut-btn--primary:hover:not(:disabled) {
+  background: var(--aut-grad);
+  border-color: transparent;
+  color: #060818 !important;
+}
+.aut-btn--glow {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--aut-cyan) 35%, transparent), 0 8px 28px -8px color-mix(in srgb, #8b6cff 80%, transparent);
+}
+.aut-btn--ghost {
+  border-color: color-mix(in srgb, var(--aut-text) 30%, transparent);
+}
+
+/* Pill tabs, same as Signals | Traders | Record | Rule Health. */
+.aut-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 5px;
+  margin-bottom: 18px;
+  border: 1px solid var(--aut-panel-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--palette-hull, #0a0e22) 80%, transparent);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.aut-tabs::-webkit-scrollbar {
+  display: none;
+}
+.aut-tab {
+  flex: 1 0 auto;
+  min-height: 46px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--aut-muted);
+  font: 500 0.95rem var(--aut-sans);
+  cursor: pointer;
+}
+.aut-tab.is-on {
+  color: var(--aut-text);
+  border-color: var(--aut-panel-line);
+  background: color-mix(in srgb, var(--aut-text) 6%, transparent);
+}
+.aut-tab:focus-visible,
+.aut-help:focus-visible {
+  outline: 2px solid var(--aut-cyan-bright);
+  outline-offset: 2px;
+}
+.aut-pane[hidden] {
+  display: none;
+}
+
+/* Signal cards in the feed: closer to the Gold Signals cards. */
+.aut-sig {
+  border-radius: 20px;
+  background: linear-gradient(160deg, color-mix(in srgb, #8b6cff 10%, var(--palette-hull, #0a0e22)), var(--palette-hull, #0a0e22));
+}
+.aut-pill--buy,
+.aut-pill--sell {
+  background: transparent;
+  border: 1.5px solid currentColor;
+  padding: 5px 10px;
+}
+.aut-fact,
+.aut-sizer {
+  border-color: var(--aut-panel-line);
+}
+
+/* Inside the app's layout: the layout already draws the background grid and the side padding. */
+.aut {
+  background: transparent;
+  min-height: 0;
+  padding: 0 0 24px;
+}

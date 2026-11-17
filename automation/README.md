@@ -27,7 +27,9 @@ Every section shows the risk warning. The Sniper Bot also has a warning directly
 
 | Path | What it is |
 | --- | --- |
-| `src/AutomationPage.tsx` | `/automation`: hero and both sections |
+| `src/AutomationSections.tsx` | **Drop-in for the existing /automation page:** tabs Instant Impact, Sniper Bot, Strategies |
+| `src/AutomationPage.tsx` | Stand-alone page, only for a site with no Automation page |
+| `src/PanelHead.tsx` | Panel header in the app style (letter-spaced title, round "?") |
 | `src/InstantImpactSection.tsx` | Section A: price, locked preview, feed, subscribe and manage buttons |
 | `src/SniperBotSection.tsx` | Section B: facts, size calculator, 3 steps, US note |
 | `src/SubscribePage.tsx` | `/automation/subscribe`: where sign-up sends people back to, then on to Checkout |
@@ -76,7 +78,27 @@ supabase functions deploy automation --no-verify-jwt
 - Express or plain Node: `toNodeHandler` in `server/node.ts`. Mount it before `express.json()`, because the webhook needs the raw body.
 - `sql` is anything with `query(text, params)`, for example `{ query: async (t, p) => (await pool.query(t, p)).rows }`.
 
-### 4. Add the pages to the app
+### 4. Add it to the existing /automation page
+The app already has `/automation`: the strategy builder with **New strategy**, **Emergency stop** and **Your strategies**. Keep that page and its header. Put the new sections under the header with pill tabs, the same pattern as Signals | Traders | Record | Rule Health:
+
+```tsx
+import { AutomationSections } from "@/automation";
+
+// in the existing Automation page, right after the header ("STEP 4 OF 4 … New strategy" and the divider):
+<AutomationSections
+  strategies={<>{/* the existing body: "Orders are simulated", Emergency stop, Your strategies */}</>}
+  hasStrategies={strategies.length > 0}
+/>
+```
+
+- Tabs: **Instant Impact | Sniper Bot | Strategies**. Your strategy builder goes in the Strategies tab, unchanged.
+- People who already have strategies land on **Strategies**, so the emergency stop is right there. Everyone else lands on Instant Impact.
+- Links open a tab directly: `/automation#instant-impact`, `#sniper-bot` and `#strategies`. Use them in TikTok and LinkedIn bios.
+- Prefer no tabs? Pass `layout="stack"` to show the two products and then your strategies one after another.
+
+See `integration-preview/examples/1-automation.png` for how it looks.
+
+### 5. Add the pages to the app
 1. Copy `src/` into the app as `src/automation/`.
 2. In the main entry file, before rendering:
    ```ts
@@ -92,10 +114,10 @@ supabase functions deploy automation --no-verify-jwt
      usePageMeta: ({ title }) => usePageTitle(title),             // optional
    });
    ```
-3. Add the routes at the top level: `...AUTOMATION_ROUTES` from `./automation`, or `/automation`, `/automation/subscribe` and `/automation/success` by hand.
+3. Add the two new routes at the top level: `...AUTOMATION_ROUTES` from `./automation` (that's `/automation/subscribe` and `/automation/success`). Don't add a second `/automation`: use `AutomationSections` inside the existing one (step 4). `AutomationPage` is only for a site that has no Automation page of its own.
 4. Make sure sign-up and sign-in send people back to the `next` address once they're done. The schedule page relies on this too.
 
-### 5. The Sniper Bot links
+### 6. The Sniper Bot links
 - `SNIPER_BOT_COPY_LINK`: in the VT Markets app, open **Copy Trading → The Sniper Bot** (the listing with the 25% fee) and tap **Share**. If that share link is an https "app link", phones with the app open it there directly.
 - `SNIPER_BOT_APP_LINK` (optional): the app's own deep link to the same listing, which your VT Markets IB manager can give you. Phones try this first and fall back to the web link after about 1.6 seconds if the app doesn't open.
 - `VT_MARKETS_ANDROID_PACKAGE` (optional): the app's Android package name. With it, Android uses an `intent://` link, which falls back to the web on its own. This is the most reliable option on Android.

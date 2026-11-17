@@ -3,6 +3,7 @@ import { useId, useMemo, useState } from "react";
 import type { AutomationState } from "./api";
 import { detectPlatform, openCopyLink } from "./deepLink";
 import { recommendedLots } from "./format";
+import { PanelHead } from "./PanelHead";
 import { RiskWarning } from "./RiskWarning";
 
 export function SniperBotSection({ state }: { state: AutomationState | null }) {
@@ -26,16 +27,20 @@ export function SniperBotSection({ state }: { state: AutomationState | null }) {
 
   return (
     <section id="sniper-bot" className="aut-card aut-card--sniper" aria-labelledby="sb-title">
-      <header className="aut-card__head">
-        <span className="aut-eyebrow">VT Markets copy trading</span>
-        <h2 id="sb-title" className="aut-card__title">
-          The Sniper Bot
-        </h2>
-        <p className="aut-card__lead">
-          Our automated strategy, copied straight onto your own VT Markets account. When The Sniper Bot opens or closes a trade, your
-          account does the same, sized to your balance. Your money stays in your account and you can stop copying at any time.
-        </p>
-      </header>
+      <PanelHead
+        id="sb-title"
+        title="The Sniper Bot"
+        help={
+          <p>
+            Our automated strategy on VT Markets copy trading. It trades your own VT Markets account, sized to your balance. VT Markets takes
+            a 25% performance fee from profits. You can stop copying at any time in the VT Markets app.
+          </p>
+        }
+      />
+      <p className="aut-card__lead">
+        Our automated strategy, copied straight onto your own VT Markets account. When The Sniper Bot opens or closes a trade, your
+        account does the same, sized to your balance. Your money stays in your account and you can stop copying at any time.
+      </p>
 
       <dl className="aut-facts">
         <div className="aut-fact">

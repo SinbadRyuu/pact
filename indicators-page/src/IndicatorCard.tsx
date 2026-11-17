@@ -66,7 +66,7 @@ export function IndicatorCard({ ind }: { ind: IndicatorSummary }) {
             </button>
           )}
           <AppLink to={href} className="ind-btn ind-btn--ghost">
-            Details
+            How it works
           </AppLink>
         </div>
       </div>

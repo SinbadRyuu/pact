@@ -52,10 +52,10 @@ export function useQueryParam(name: string, fallback: string): [string, (v: stri
   return [value, set];
 }
 
-export function AppLink(props: { to: string; className?: string; children: ReactNode; "aria-label"?: string }) {
+export function AppLink(props: { to: string; className?: string; children: ReactNode; "aria-label"?: string; "aria-current"?: "page" }) {
   const L = rankingsDeps().Link;
   if (L) return createElement(L, props);
-  return createElement("a", { href: props.to, className: props.className, "aria-label": props["aria-label"] }, props.children);
+  return createElement("a", { href: props.to, className: props.className, "aria-label": props["aria-label"], "aria-current": props["aria-current"] }, props.children);
 }
 
 export function usePageMeta(title: string, description: string) {

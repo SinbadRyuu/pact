@@ -79,7 +79,21 @@ Weeks run Monday to Sunday, and every boundary is midnight in `RANKINGS_TIMEZONE
    configureRankings({ apiBase: `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rankings` });
    ```
    Routes: `/signals/rankings` → `RankingsPage`, and `/signals/providers/:slug` → `ProviderPage` (pass `slug`).
-4. **Signals page tab:** at the top of the existing signals page, add `<SignalsTabs current="signals" />` so both pages share the Signals | Power Rankings tabs.
+4. **Add the tab to the Signals page.** The Signals page already has pill tabs: Signals, Traders, Record, Rule Health. Add a fifth and render the rankings as its content:
+   ```tsx
+   import { RANKINGS_TAB, RankingsSection, configureRankings } from "@/rankings";
+
+   const TABS = [...existingTabs, RANKINGS_TAB];                 // { label: "Power Rankings", href: "/signals/rankings" }
+   // when the Power Rankings tab is selected (route /signals/rankings):
+   <RankingsSection />
+   ```
+   Also pass the existing tabs once, so the provider profile shows the same tab row:
+   ```ts
+   configureRankings({ apiBase, signalsTabs: existingTabs });
+   ```
+   `RankingsSection` lays out its content in panels (POWER RANKINGS, LEADERBOARD, LIVE NOW), styled like GOLD SIGNALS. See `integration-preview/examples/4-power-rankings.png`.
+
+   **Traders and Record:** these existing tabs may already list providers or results. Power Rankings is calculated from the same trades, so check that the numbers agree. If Traders becomes redundant, you could replace it with Power Rankings.
 
 ## Env vars (all optional)
 

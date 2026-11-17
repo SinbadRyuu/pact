@@ -84,7 +84,17 @@ They cover `/chart`, `/charts`, `/app/chart` and `/app/charts`, including anythi
    supabase functions deploy indicators --no-verify-jwt     # visitors browse without signing in; downloads are checked per request
    ```
    On another host, `createIndicatorsApiFromEnv(process.env, sql, getUser)` gives a `(Request) => Response` handler. Mount it at `/api/indicators`.
-3. **Pages:** copy `src/` to `src/indicators/` in the app, then at start-up:
+3. **Add to the existing Indicators page.** The app's Indicators page already has **MY INDICATORS**, **YOUR SAVED SETTINGS** and the built-in list (Momentum, …). Keep all of that and add the new panel above MY INDICATORS:
+   ```tsx
+   import { IndicatorsSection } from "@/indicators";
+   // first thing under the page header:
+   <IndicatorsSection />
+   ```
+   It's a **VT IMPACT INDICATORS** panel in the same style as the others (letter-spaced header, round "?"), with search, the platform filter and the cards. See `integration-preview/examples/3-indicators.png`. `IndicatorsPage` is only for a site with no Indicators page.
+
+   **The old chart page:** your bottom bar has **Chart**, which opens the gold chart. If that's the "chart page" the brief means, the 301 would take the live chart away from the bottom bar. Check which page should go before adding the redirect. If it's an older, separate chart page, the redirect is safe.
+
+4. **Pages:** copy `src/` to `src/indicators/` in the app, then at start-up:
    ```ts
    import { configureIndicators } from "./indicators";
    configureIndicators({
@@ -94,7 +104,7 @@ They cover `/chart`, `/charts`, `/app/chart` and `/app/charts`, including anythi
    });
    ```
    Routes: `/indicators` → `IndicatorsPage`, and `/indicators/:slug` → `IndicatorDetailPage` (pass `slug` from the route params). The old chart route → `LegacyChartRedirect`.
-4. **Redirect:** add the 301 for your host (above).
+5. **Redirect:** add the 301 for your host (above).
 
 ## Env vars
 

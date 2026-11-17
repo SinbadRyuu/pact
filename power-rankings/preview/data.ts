@@ -3,7 +3,7 @@ import type { MemoryTrade } from "../server/store";
 import type { Provider } from "../shared/types";
 
 export const PREVIEW_PROVIDERS: Provider[] = [
-  "VT Capital", "Gold Sniper", "London Breakout", "Steady FX", "Night Owl", "Index Hunter", "Swing Society", "Fresh Face",
+  "Aurum", "Gold Sniper", "London Breakout", "Steady FX", "Night Owl", "Index Hunter", "Swing Society", "Fresh Face",
 ].map((name, i) => ({ id: `p${i}`, slug: name.toLowerCase().replace(/[^a-z0-9]+/g, "-"), name, avatarUrl: null }));
 
 let s = 42;
