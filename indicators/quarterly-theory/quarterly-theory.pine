@@ -71,12 +71,19 @@ pq4CCol   = input.color(#4caf50, "Q4 close", inline = "pc", group = G_Q4)
 pq4StyleS = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = G_Q4)
 
 G_SMT = "SMT divergence (quarter to quarter)"
-showSMT   = input.bool(true, "Show SMT divergence", group = G_SMT, tooltip = "Compares each quarter with the previous quarter of the same cycle the boxes use. Bearish SMT: one symbol takes out the previous quarter's high and the other does not. Bullish SMT: the same with lows.")
-smtSymIn  = input.symbol("", "Compare with", group = G_SMT, tooltip = "Leave blank to pick automatically: ES <-> NQ, YM -> ES, GC <-> SI, XAUUSD <-> XAGUSD, EURUSD <-> GBPUSD, BTC <-> ETH (micros map to micros). Anything else falls back to NQ.")
-smtInvert = input.bool(false, "Invert the comparison symbol (e.g. DXY)", group = G_SMT)
+showSMT   = input.bool(true, "Show SMT divergence", group = G_SMT, tooltip = "Compares each quarter with the previous quarter of the same cycle the boxes use. Bearish SMT: your chart and a comparison symbol disagree on taking out the previous quarter's high (one does, the other does not). Bullish SMT: the same with lows. An SMT is marked when the chart disagrees with ANY of the enabled comparison symbols.")
+use1      = input.bool(true, "", inline = "s1", group = G_SMT)
+smt1In    = input.symbol("", "Compare 1", inline = "s1", group = G_SMT)
+inv1      = input.bool(false, "Invert", inline = "s1", group = G_SMT)
+use2      = input.bool(true, "", inline = "s2", group = G_SMT)
+smt2In    = input.symbol("", "Compare 2", inline = "s2", group = G_SMT)
+inv2      = input.bool(false, "Invert", inline = "s2", group = G_SMT)
+use3      = input.bool(true, "", inline = "s3", group = G_SMT, tooltip = "Leave a symbol blank to pick automatically.\nXAUUSD: XAGUSD, XPTUSD, XCUUSD (silver, platinum, copper)\nGC: SI, PL, HG\nES: NQ, YM   NQ: ES, YM   YM: ES, NQ (micros map to micros)\nEURUSD <-> GBPUSD, BTC <-> ETH\nTick Invert for inverse pairs such as DXY.")
+smt3In    = input.symbol("", "Compare 3", inline = "s3", group = G_SMT)
+inv3      = input.bool(false, "Invert", inline = "s3", group = G_SMT)
 smtBullC  = input.color(#4caf50, "Bullish", inline = "sc", group = G_SMT)
 smtBearC  = input.color(#f44336, "Bearish", inline = "sc", group = G_SMT)
-smtRemove = input.bool(true, "Remove an SMT if the other symbol also sweeps later in the quarter", group = G_SMT)
+smtRemove = input.bool(true, "Remove an SMT if every symbol ends up agreeing later in the quarter", group = G_SMT)
 
 // ───────────────────────────── Helpers ─────────────────────────────
 
@@ -276,61 +283,138 @@ if bDraw
 
 // ───────────────────────────── SMT divergence ─────────────────────────────
 
-autoPair() =>
-    string r = syminfo.root
-    string k = syminfo.ticker
-    r == "ES" ? "CME_MINI:NQ1!" : r == "MES" ? "CME_MINI:MNQ1!" : r == "NQ" ? "CME_MINI:ES1!" : r == "MNQ" ? "CME_MINI:MES1!" :
-     r == "YM" ? "CME_MINI:ES1!" : r == "MYM" ? "CME_MINI:MES1!" : r == "GC" ? "COMEX:SI1!" : r == "MGC" ? "COMEX:SIL1!" : r == "SI" ? "COMEX:GC1!" :
-     k == "XAUUSD" ? "OANDA:XAGUSD" : k == "XAGUSD" ? "OANDA:XAUUSD" : k == "EURUSD" ? "OANDA:GBPUSD" : k == "GBPUSD" ? "OANDA:EURUSD" :
-     k == "BTCUSD" or k == "BTCUSDT" ? "BINANCE:ETHUSDT" : k == "ETHUSD" or k == "ETHUSDT" ? "BINANCE:BTCUSDT" : "CME_MINI:NQ1!"
+autoPairs() =>
+    string r  = syminfo.root
+    string k  = syminfo.ticker
+    string a1 = "CME_MINI:NQ1!"
+    string a2 = ""
+    string a3 = ""
+    if k == "XAUUSD"
+        a1 := "OANDA:XAGUSD"
+        a2 := "OANDA:XPTUSD"
+        a3 := "OANDA:XCUUSD"
+    else if k == "XAGUSD"
+        a1 := "OANDA:XAUUSD"
+        a2 := "OANDA:XPTUSD"
+        a3 := "OANDA:XCUUSD"
+    else if r == "GC" or r == "MGC"
+        a1 := "COMEX:SI1!"
+        a2 := "NYMEX:PL1!"
+        a3 := "COMEX:HG1!"
+    else if r == "SI" or r == "SIL"
+        a1 := "COMEX:GC1!"
+        a2 := "NYMEX:PL1!"
+        a3 := "COMEX:HG1!"
+    else if r == "ES"
+        a1 := "CME_MINI:NQ1!"
+        a2 := "CBOT_MINI:YM1!"
+    else if r == "NQ"
+        a1 := "CME_MINI:ES1!"
+        a2 := "CBOT_MINI:YM1!"
+    else if r == "YM"
+        a1 := "CME_MINI:ES1!"
+        a2 := "CME_MINI:NQ1!"
+    else if r == "MES"
+        a1 := "CME_MINI:MNQ1!"
+        a2 := "CBOT_MINI:MYM1!"
+    else if r == "MNQ"
+        a1 := "CME_MINI:MES1!"
+        a2 := "CBOT_MINI:MYM1!"
+    else if r == "MYM"
+        a1 := "CME_MINI:MES1!"
+        a2 := "CME_MINI:MNQ1!"
+    else if k == "EURUSD"
+        a1 := "OANDA:GBPUSD"
+    else if k == "GBPUSD"
+        a1 := "OANDA:EURUSD"
+    else if k == "BTCUSD" or k == "BTCUSDT"
+        a1 := "BINANCE:ETHUSDT"
+    else if k == "ETHUSD" or k == "ETHUSDT"
+        a1 := "BINANCE:BTCUSDT"
+    [a1, a2, a3]
 
-string smtSym = smtSymIn == "" ? autoPair() : smtSymIn
-[cmpHi, cmpLo] = request.security(smtSym, timeframe.period, [high, low])
-float bHi = smtInvert ? -cmpLo : cmpHi
-float bLo = smtInvert ? -cmpHi : cmpLo
-string bName = str.contains(smtSym, ":") ? str.substring(smtSym, str.pos(smtSym, ":") + 1) : smtSym
+[auto1, auto2, auto3] = autoPairs()
+string sym1 = smt1In != "" ? smt1In : auto1
+string sym2 = smt2In != "" ? smt2In : auto2
+string sym3 = smt3In != "" ? smt3In : auto3
+bool   on1  = showSMT and use1 and sym1 != ""
+bool   on2  = showSMT and use2 and sym2 != ""
+bool   on3  = showSMT and use3 and sym3 != ""
+
+symName(string sym) =>
+    str.contains(sym, ":") ? str.substring(sym, str.pos(sym, ":") + 1) : sym
+
+reqHL(string sym, bool on, bool inv) =>
+    [h, l] = request.security(on ? sym : syminfo.tickerid, timeframe.period, [high, low])
+    [inv ? -l : h, inv ? -h : l]
+
+[h1, l1] = reqHL(sym1, on1, inv1)
+[h2, l2] = reqHL(sym2, on2, inv2)
+[h3, l3] = reqHL(sym3, on3, inv3)
+
+int tfMs = timeframe.in_seconds() * 1000
+
+// Start of an SMT line. If it would start exactly where the previous SMT line on the same side
+// ends, it starts one bar later on the same straight path, so the two lines never touch.
+smtStart(int t0, float y0, int t1, float y1, bool chained) =>
+    int   x = t0
+    float y = y0
+    if chained and t1 - t0 > 2 * tfMs
+        x := t0 + tfMs
+        y := y0 + (y1 - y0) * float(x - t0) / float(t1 - t0)
+    [x, y]
 
 type Smt
-    int    cid
-    int    q
-    float  aH
-    float  aL
-    float  bH
-    float  bL
-    int    aHT
-    int    aLT
-    float  pAH
-    float  pAL
-    float  pBH
-    float  pBL
-    int    pAHT
-    int    pALT
-    bool   bearDone = false
-    bool   bullDone = false
-    line   bearLn
-    label  bearLb
-    line   bullLn
-    label  bullLb
+    int          cid
+    int          q
+    float        aH
+    float        aL
+    int          aHT
+    int          aLT
+    float        pAH
+    float        pAL
+    int          pAHT
+    int          pALT
+    array<float> bH
+    array<float> bL
+    array<float> pBH
+    array<float> pBL
+    bool         bearDone = false
+    bool         bullDone = false
+    bool         bearChain = false
+    bool         bullChain = false
+    int          lastBearEnd
+    int          lastBullEnd
+    line         bearLn
+    label        bearLb
+    line         bullLn
+    label        bullLb
 
-var Smt sm = Smt.new()
+var Smt sm = Smt.new(bH = array.new<float>(3, na), bL = array.new<float>(3, na), pBH = array.new<float>(3, na), pBL = array.new<float>(3, na))
 bool newBearSmt = false
 bool newBullSmt = false
+
+array<bool>   onArr = array.from(on1, on2, on3)
+array<float>  hiArr = array.from(h1, h2, h3)
+array<float>  loArr = array.from(l1, l2, l3)
+array<string> nmArr = array.from(symName(sym1), symName(sym2), symName(sym3))
 
 if showSMT and not na(bId)
     if na(sm.cid) or bId != sm.cid or bQ != sm.q
         // New quarter: the finished quarter becomes the reference
         sm.pAH  := sm.aH
         sm.pAL  := sm.aL
-        sm.pBH  := sm.bH
-        sm.pBL  := sm.bL
         sm.pAHT := sm.aHT
         sm.pALT := sm.aLT
         sm.aH   := high
         sm.aL   := low
         sm.aHT  := time
         sm.aLT  := time
-        sm.bH   := bHi
-        sm.bL   := bLo
+        for i = 0 to 2
+            sm.pBH.set(i, sm.bH.get(i))
+            sm.pBL.set(i, sm.bL.get(i))
+            sm.bH.set(i, hiArr.get(i))
+            sm.bL.set(i, loArr.get(i))
         sm.bearDone := false
         sm.bullDone := false
         sm.bearLn := na
@@ -344,52 +428,77 @@ if showSMT and not na(bId)
         if low < sm.aL
             sm.aL  := low
             sm.aLT := time
-        sm.bH := na(sm.bH) ? bHi : math.max(sm.bH, nz(bHi, sm.bH))
-        sm.bL := na(sm.bL) ? bLo : math.min(sm.bL, nz(bLo, sm.bL))
+        for i = 0 to 2
+            float h = hiArr.get(i)
+            float l = loArr.get(i)
+            float ch = sm.bH.get(i)
+            float cl = sm.bL.get(i)
+            sm.bH.set(i, na(ch) ? h : na(h) ? ch : math.max(ch, h))
+            sm.bL.set(i, na(cl) ? l : na(l) ? cl : math.min(cl, l))
     sm.cid := bId
     sm.q   := bQ
 
-    bool ready = not na(sm.pAH) and not na(sm.pBH) and not na(sm.bH)
-    if ready
-        // Bearish: exactly one symbol took the previous quarter's high
-        bool aUp  = sm.aH > sm.pAH
-        bool bUp  = sm.bH > sm.pBH
-        bool bear = aUp != bUp
+    if not na(sm.pAH)
+        bool aUp = sm.aH > sm.pAH
+        bool aDn = sm.aL < sm.pAL
+        string bearWho = ""
+        string bullWho = ""
+        for i = 0 to 2
+            if onArr.get(i) and not na(sm.pBH.get(i)) and not na(sm.bH.get(i))
+                if (sm.bH.get(i) > sm.pBH.get(i)) != aUp
+                    bearWho := bearWho + (bearWho == "" ? "" : ", ") + nmArr.get(i)
+                if (sm.bL.get(i) < sm.pBL.get(i)) != aDn
+                    bullWho := bullWho + (bullWho == "" ? "" : ", ") + nmArr.get(i)
+        bool bear = bearWho != ""
+        bool bull = bullWho != ""
+
+        // Bearish: a straight line joining the previous quarter high and this quarter's high
         if bear and not sm.bearDone
             sm.bearDone := true
             newBearSmt  := true
             if bDraw
-                string tip = (aUp ? syminfo.ticker : bName) + " took the previous quarter high, " + (aUp ? bName : syminfo.ticker) + " did not"
-                sm.bearLn := line.new(sm.pAHT, sm.pAH, sm.aHT, sm.aH, xloc.bar_time, color = smtBearC, width = 2)
+                sm.bearChain := sm.lastBearEnd == sm.pAHT
+                [x0, y0] = smtStart(sm.pAHT, sm.pAH, sm.aHT, sm.aH, sm.bearChain)
+                string tip = aUp ? syminfo.ticker + " took the previous quarter high. Did not: " + bearWho : bearWho + " took the previous quarter high. " + syminfo.ticker + " did not."
+                sm.bearLn := line.new(x0, y0, sm.aHT, sm.aH, xloc.bar_time, color = smtBearC, width = 2)
                 sm.bearLb := label.new(sm.aHT, sm.aH, "SMT", xloc.bar_time, color = color(na), style = label.style_label_down, textcolor = smtBearC, size = size.small, tooltip = tip)
+                sm.lastBearEnd := sm.aHT
         else if bear and not na(sm.bearLn)
+            [x0, y0] = smtStart(sm.pAHT, sm.pAH, sm.aHT, sm.aH, sm.bearChain)
+            sm.bearLn.set_xy1(x0, y0)
             sm.bearLn.set_xy2(sm.aHT, sm.aH)
             sm.bearLb.set_xy(sm.aHT, sm.aH)
-        else if not bear and sm.bearDone and smtRemove and not na(sm.bearLn)
+            sm.lastBearEnd := sm.aHT
+        else if not bear and smtRemove and not na(sm.bearLn)
             sm.bearLn.delete()
             sm.bearLb.delete()
             sm.bearLn := na
             sm.bearLb := na
+            sm.lastBearEnd := na
 
-        // Bullish: exactly one symbol took the previous quarter's low
-        bool aDn  = sm.aL < sm.pAL
-        bool bDn  = sm.bL < sm.pBL
-        bool bull = aDn != bDn
+        // Bullish: a straight line joining the previous quarter low and this quarter's low
         if bull and not sm.bullDone
             sm.bullDone := true
             newBullSmt  := true
             if bDraw
-                string tip = (aDn ? syminfo.ticker : bName) + " took the previous quarter low, " + (aDn ? bName : syminfo.ticker) + " did not"
-                sm.bullLn := line.new(sm.pALT, sm.pAL, sm.aLT, sm.aL, xloc.bar_time, color = smtBullC, width = 2)
+                sm.bullChain := sm.lastBullEnd == sm.pALT
+                [x0, y0] = smtStart(sm.pALT, sm.pAL, sm.aLT, sm.aL, sm.bullChain)
+                string tip = aDn ? syminfo.ticker + " took the previous quarter low. Did not: " + bullWho : bullWho + " took the previous quarter low. " + syminfo.ticker + " did not."
+                sm.bullLn := line.new(x0, y0, sm.aLT, sm.aL, xloc.bar_time, color = smtBullC, width = 2)
                 sm.bullLb := label.new(sm.aLT, sm.aL, "SMT", xloc.bar_time, color = color(na), style = label.style_label_up, textcolor = smtBullC, size = size.small, tooltip = tip)
+                sm.lastBullEnd := sm.aLT
         else if bull and not na(sm.bullLn)
+            [x0, y0] = smtStart(sm.pALT, sm.pAL, sm.aLT, sm.aL, sm.bullChain)
+            sm.bullLn.set_xy1(x0, y0)
             sm.bullLn.set_xy2(sm.aLT, sm.aL)
             sm.bullLb.set_xy(sm.aLT, sm.aL)
-        else if not bull and sm.bullDone and smtRemove and not na(sm.bullLn)
+            sm.lastBullEnd := sm.aLT
+        else if not bull and smtRemove and not na(sm.bullLn)
             sm.bullLn.delete()
             sm.bullLb.delete()
             sm.bullLn := na
             sm.bullLb := na
+            sm.lastBullEnd := na
 
 alertcondition(newBearSmt, "Bearish SMT", "Bearish quarterly SMT on {{ticker}}")
 alertcondition(newBullSmt, "Bullish SMT", "Bullish quarterly SMT on {{ticker}}")
