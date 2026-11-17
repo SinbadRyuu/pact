@@ -35,3 +35,93 @@
   color: var(--palette-void, #02030a);
   background: var(--palette-gold, #ffd25e);
 }
+
+/* Home page cards (HomeShortcuts): one per row on phones, three across on wider screens. */
+.vhome {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin: 0 0 22px;
+}
+.vhome__card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 96px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, var(--palette-cyan, #3ee8ff) 22%, var(--color-border, #1d2a52));
+  background:
+    radial-gradient(ellipse at 100% 0%, color-mix(in srgb, var(--palette-mark-violet, #8b6cff) 22%, transparent), transparent 60%),
+    color-mix(in srgb, var(--palette-hull, #0a0e22) 90%, transparent);
+  color: var(--color-text, #e8f3ff);
+  text-decoration: none;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+.vhome__card:hover {
+  border-color: var(--palette-cyan, #3ee8ff);
+}
+.vhome__card:active {
+  transform: scale(0.99);
+}
+.vhome__card:focus-visible {
+  outline: 2px solid var(--palette-cyan-bright, #7ff1ff);
+  outline-offset: 3px;
+}
+.vhome__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  color: #060818;
+  background: linear-gradient(135deg, var(--palette-cyan, #3ee8ff), var(--palette-mark-violet, #8b6cff) 60%, var(--palette-magenta, #ff4fd8));
+  box-shadow: 0 8px 22px -8px color-mix(in srgb, var(--palette-mark-violet, #8b6cff) 80%, transparent);
+}
+.vhome__icon svg {
+  width: 24px;
+  height: 24px;
+}
+.vhome__text {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.vhome__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 1.12rem/1.2 var(--font-display, system-ui);
+}
+.vhome__copy {
+  color: var(--color-text-muted, #9aa8c7);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+.vhome__live {
+  margin-top: 3px;
+  color: var(--palette-cyan, #3ee8ff);
+  font: 600 0.85rem var(--font-sans, system-ui);
+}
+.vhome__chev {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  color: var(--color-text-muted, #9aa8c7);
+}
+@media (min-width: 860px) {
+  .vhome {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .vhome__card {
+    align-items: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vhome__card {
+    transition: none;
+  }
+}

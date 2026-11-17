@@ -10,7 +10,7 @@ Examples of every new page **inside a copy of the vtimpact.com app frame**: the 
   - `3-indicators.png`: the new VT IMPACT INDICATORS panel above your existing sections, plus the detail page
   - `4-power-rankings.png`: the 5th tab on Signals: podium, leaderboard, live now
   - `5-provider-profile.png`: one provider's stats, charts and trade history
-  - `6-more-menu.png`: the three new pages in More
+  - `6-home.png`: the three new pages as cards on Home, with live lines
 - **Click around:** download [`preview.html`](preview.html) and open it in any browser, on a phone or a computer. It's one self-contained file and works offline. The bar at the top switches pages and who you're viewing as (visitor, member, subscribed, payment failed, cancelled). **Outline new parts** marks what's new with a dashed gold line.
 
 The Indicators and Power Rankings examples run the **real** server code (stats, periods, access rules) in the browser over sample data. Automation uses a stand-in for Stripe. Subscribe → sign in → checkout → success works end to end in the preview.
@@ -22,7 +22,7 @@ The Indicators and Power Rankings examples run the **real** server code (stats, 
 | `/automation` (strategy builder) | `<AutomationSections strategies={…existing body…} hasStrategies={…} />` | under the page header, in place of the body. Tabs: Instant Impact, Sniper Bot, Strategies. |
 | Indicators page | `<IndicatorsSection />` | above **MY INDICATORS** |
 | Signals page tabs | `{ label: "Power Rankings", href: "/signals/rankings" }`, and `<RankingsSection />` as that tab's content | at the end of Signals, Traders, Record, Rule Health |
-| More menu | the three items in `site-navigation/src/nav.ts` | in the More sheet (and the desktop nav) |
+| Home page | `<HomeShortcuts />` from `site-navigation/` | near the top of Home, under the greeting |
 
 The new routes are `/automation/subscribe`, `/automation/success`, `/indicators/:slug` and `/signals/providers/:slug`. Each feature's README has the exact code.
 
