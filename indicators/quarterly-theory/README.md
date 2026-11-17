@@ -10,9 +10,9 @@ Pine Script v6 indicator for TradingView (`quarterly-theory.pine`). Paste it int
   - TWO: Monday 18:00
   - TDO: 00:00
   - Session true opens: AO 19:30, LO 01:30, NYO 07:30, PMO 13:30
-  - T90: 22.5 minutes into each 90-minute cycle (off by default)
+  - T90: 22.5 minutes into each 90-minute cycle
 - **Quarter boxes**: each quarter is filled from its high to its low, coloured Q1 grey, Q2 green, Q3 red, Q4 blue. A dotted line runs the full height of the chart at the start of each quarter, and a dashed outline goes around the whole cycle.
-- **Previous Q4 open and close**: when a cycle ends, its Q4 open and Q4 close are drawn from the start of that Q4 across the whole next cycle. This is on for Yearly, Monthly, Weekly and Daily, and can be turned on for Session and 90-minute cycles.
+- **Previous Q4 open and close**: when a cycle ends, its Q4 open and Q4 close are drawn from the start of that Q4 across the whole next cycle. It is on for every cycle by default.
 
 All times are New York time. The trading day starts at 18:00.
 
