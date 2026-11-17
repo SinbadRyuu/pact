@@ -16,6 +16,8 @@ Pine Script v6 indicator for TradingView (`quarterly-theory.pine`). Paste it int
 
 All times are New York time. The trading day starts at 18:00.
 
+- **SMT divergence (quarter to quarter)**: each quarter is compared with the previous quarter of the same cycle, against a second symbol. If only one of the two takes the previous quarter's high, a red **SMT** line joins the two highs. If only one takes the previous quarter's low, a green one joins the lows. Hover the label to see which symbol swept. If the other symbol also sweeps later in the quarter, the SMT is removed (you can turn this off). Leave **Compare with** blank to pair automatically (ES ↔ NQ, YM → ES, GC ↔ SI, XAUUSD ↔ XAGUSD, EURUSD ↔ GBPUSD, BTC ↔ ETH), or pick any symbol. Tick **Invert** for inverse pairs such as DXY. There are "Bearish SMT" and "Bullish SMT" alert conditions.
+
 ## Adaptive mode (default)
 
 The chart timeframe picks one cycle. Only that cycle's quarter boxes, true open and previous Q4 open/close are drawn. Nothing from other cycles is shown.

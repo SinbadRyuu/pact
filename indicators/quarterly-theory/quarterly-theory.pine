@@ -70,6 +70,14 @@ pq4OCol   = input.color(#ff5252, "Q4 open", inline = "pc", group = G_Q4)
 pq4CCol   = input.color(#4caf50, "Q4 close", inline = "pc", group = G_Q4)
 pq4StyleS = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = G_Q4)
 
+G_SMT = "SMT divergence (quarter to quarter)"
+showSMT   = input.bool(true, "Show SMT divergence", group = G_SMT, tooltip = "Compares each quarter with the previous quarter of the same cycle the boxes use. Bearish SMT: one symbol takes out the previous quarter's high and the other does not. Bullish SMT: the same with lows.")
+smtSymIn  = input.symbol("", "Compare with", group = G_SMT, tooltip = "Leave blank to pick automatically: ES <-> NQ, YM -> ES, GC <-> SI, XAUUSD <-> XAGUSD, EURUSD <-> GBPUSD, BTC <-> ETH (micros map to micros). Anything else falls back to NQ.")
+smtInvert = input.bool(false, "Invert the comparison symbol (e.g. DXY)", group = G_SMT)
+smtBullC  = input.color(#4caf50, "Bullish", inline = "sc", group = G_SMT)
+smtBearC  = input.color(#f44336, "Bearish", inline = "sc", group = G_SMT)
+smtRemove = input.bool(true, "Remove an SMT if the other symbol also sweeps later in the quarter", group = G_SMT)
+
 // ───────────────────────────── Helpers ─────────────────────────────
 
 lineStyle(string s) =>
@@ -265,3 +273,123 @@ if bDraw
             bs.ob.set_right(time_close)
     bs.id := bId
     bs.q  := bQ
+
+// ───────────────────────────── SMT divergence ─────────────────────────────
+
+autoPair() =>
+    string r = syminfo.root
+    string k = syminfo.ticker
+    r == "ES" ? "CME_MINI:NQ1!" : r == "MES" ? "CME_MINI:MNQ1!" : r == "NQ" ? "CME_MINI:ES1!" : r == "MNQ" ? "CME_MINI:MES1!" :
+     r == "YM" ? "CME_MINI:ES1!" : r == "MYM" ? "CME_MINI:MES1!" : r == "GC" ? "COMEX:SI1!" : r == "MGC" ? "COMEX:SIL1!" : r == "SI" ? "COMEX:GC1!" :
+     k == "XAUUSD" ? "OANDA:XAGUSD" : k == "XAGUSD" ? "OANDA:XAUUSD" : k == "EURUSD" ? "OANDA:GBPUSD" : k == "GBPUSD" ? "OANDA:EURUSD" :
+     k == "BTCUSD" or k == "BTCUSDT" ? "BINANCE:ETHUSDT" : k == "ETHUSD" or k == "ETHUSDT" ? "BINANCE:BTCUSDT" : "CME_MINI:NQ1!"
+
+string smtSym = smtSymIn == "" ? autoPair() : smtSymIn
+[cmpHi, cmpLo] = request.security(smtSym, timeframe.period, [high, low])
+float bHi = smtInvert ? -cmpLo : cmpHi
+float bLo = smtInvert ? -cmpHi : cmpLo
+string bName = str.contains(smtSym, ":") ? str.substring(smtSym, str.pos(smtSym, ":") + 1) : smtSym
+
+type Smt
+    int    cid
+    int    q
+    float  aH
+    float  aL
+    float  bH
+    float  bL
+    int    aHT
+    int    aLT
+    float  pAH
+    float  pAL
+    float  pBH
+    float  pBL
+    int    pAHT
+    int    pALT
+    bool   bearDone = false
+    bool   bullDone = false
+    line   bearLn
+    label  bearLb
+    line   bullLn
+    label  bullLb
+
+var Smt sm = Smt.new()
+bool newBearSmt = false
+bool newBullSmt = false
+
+if showSMT and not na(bId)
+    if na(sm.cid) or bId != sm.cid or bQ != sm.q
+        // New quarter: the finished quarter becomes the reference
+        sm.pAH  := sm.aH
+        sm.pAL  := sm.aL
+        sm.pBH  := sm.bH
+        sm.pBL  := sm.bL
+        sm.pAHT := sm.aHT
+        sm.pALT := sm.aLT
+        sm.aH   := high
+        sm.aL   := low
+        sm.aHT  := time
+        sm.aLT  := time
+        sm.bH   := bHi
+        sm.bL   := bLo
+        sm.bearDone := false
+        sm.bullDone := false
+        sm.bearLn := na
+        sm.bearLb := na
+        sm.bullLn := na
+        sm.bullLb := na
+    else
+        if high > sm.aH
+            sm.aH  := high
+            sm.aHT := time
+        if low < sm.aL
+            sm.aL  := low
+            sm.aLT := time
+        sm.bH := na(sm.bH) ? bHi : math.max(sm.bH, nz(bHi, sm.bH))
+        sm.bL := na(sm.bL) ? bLo : math.min(sm.bL, nz(bLo, sm.bL))
+    sm.cid := bId
+    sm.q   := bQ
+
+    bool ready = not na(sm.pAH) and not na(sm.pBH) and not na(sm.bH)
+    if ready
+        // Bearish: exactly one symbol took the previous quarter's high
+        bool aUp  = sm.aH > sm.pAH
+        bool bUp  = sm.bH > sm.pBH
+        bool bear = aUp != bUp
+        if bear and not sm.bearDone
+            sm.bearDone := true
+            newBearSmt  := true
+            if bDraw
+                string tip = (aUp ? syminfo.ticker : bName) + " took the previous quarter high, " + (aUp ? bName : syminfo.ticker) + " did not"
+                sm.bearLn := line.new(sm.pAHT, sm.pAH, sm.aHT, sm.aH, xloc.bar_time, color = smtBearC, width = 2)
+                sm.bearLb := label.new(sm.aHT, sm.aH, "SMT", xloc.bar_time, color = color(na), style = label.style_label_down, textcolor = smtBearC, size = size.small, tooltip = tip)
+        else if bear and not na(sm.bearLn)
+            sm.bearLn.set_xy2(sm.aHT, sm.aH)
+            sm.bearLb.set_xy(sm.aHT, sm.aH)
+        else if not bear and sm.bearDone and smtRemove and not na(sm.bearLn)
+            sm.bearLn.delete()
+            sm.bearLb.delete()
+            sm.bearLn := na
+            sm.bearLb := na
+
+        // Bullish: exactly one symbol took the previous quarter's low
+        bool aDn  = sm.aL < sm.pAL
+        bool bDn  = sm.bL < sm.pBL
+        bool bull = aDn != bDn
+        if bull and not sm.bullDone
+            sm.bullDone := true
+            newBullSmt  := true
+            if bDraw
+                string tip = (aDn ? syminfo.ticker : bName) + " took the previous quarter low, " + (aDn ? bName : syminfo.ticker) + " did not"
+                sm.bullLn := line.new(sm.pALT, sm.pAL, sm.aLT, sm.aL, xloc.bar_time, color = smtBullC, width = 2)
+                sm.bullLb := label.new(sm.aLT, sm.aL, "SMT", xloc.bar_time, color = color(na), style = label.style_label_up, textcolor = smtBullC, size = size.small, tooltip = tip)
+        else if bull and not na(sm.bullLn)
+            sm.bullLn.set_xy2(sm.aLT, sm.aL)
+            sm.bullLb.set_xy(sm.aLT, sm.aL)
+        else if not bull and sm.bullDone and smtRemove and not na(sm.bullLn)
+            sm.bullLn.delete()
+            sm.bullLb.delete()
+            sm.bullLn := na
+            sm.bullLb := na
+
+alertcondition(newBearSmt, "Bearish SMT", "Bearish quarterly SMT on {{ticker}}")
+alertcondition(newBullSmt, "Bullish SMT", "Bullish quarterly SMT on {{ticker}}")
