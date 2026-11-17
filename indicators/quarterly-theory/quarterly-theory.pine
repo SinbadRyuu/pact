@@ -1,0 +1,260 @@
+// Quarterly Theory — True Opens, quarter boxes and previous Q4 open/close.
+//
+// Every cycle is split into four quarters (Q1–Q4). The True Open of a cycle is the open of its
+// Q2. All times are New York time, and the trading day starts at 18:00.
+//
+//   Cycle          Quarters                                          True open
+//   Yearly         Jan–Mar | Apr–Jun | Jul–Sep | Oct–Dec               TYO  = 1 April
+//   Monthly        week 1 | week 2 | week 3 | week 4 (Monday weeks)    TMO  = 2nd Monday (Sun 18:00)
+//   Weekly         Mon | Tue | Wed | Thu (Friday shown on its own)     TWO  = Monday 18:00
+//   Daily          Asia 18-00 | London 00-06 | NY 06-12 | PM 12-18     TDO  = 00:00
+//   Session (6H)   four 90-minute quarters                             AO 19:30, LO 01:30, NYO 07:30, PMO 13:30
+//   90 Minute      four 22.5-minute quarters                           T90  = start + 22.5 min
+//
+// It describes time and price only. Nothing here is financial advice.
+
+//@version=6
+indicator("Quarterly Theory - True Opens", "QT True Opens", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 500)
+
+// ───────────────────────────── Inputs ─────────────────────────────
+
+G_GEN = "General"
+tz        = input.string("America/New_York", "Timezone", group = G_GEN, tooltip = "Quarterly Theory uses New York time. Leave this unless you know you need another.")
+lookback  = input.int(10, "Intraday history (days)", minval = 1, maxval = 120, group = G_GEN, tooltip = "How many days back to draw the Daily, Session and 90-minute cycles and the intraday boxes. Yearly, monthly and weekly opens are always drawn.")
+autoHide  = input.bool(true, "Hide cycles too small for the chart timeframe", group = G_GEN, tooltip = "For example, 90-minute cycles are hidden above 5m and Daily cycles above 1H.")
+
+G_BOX = "Quarter boxes"
+boxCycle  = input.string("Auto", "Box cycle", options = ["Auto", "Yearly", "Monthly", "Weekly", "Daily", "Session (6H)", "90 Minute", "Off"], group = G_BOX, tooltip = "Which cycle's quarters get filled boxes. Auto: 1-5m = Session (90-min boxes), 15m-1H = Daily, 2H-4H = Weekly, up to 1D = Monthly, above = Yearly.")
+q1Col     = input.color(color.new(color.gray, 85), "Q1", inline = "qc", group = G_BOX)
+q2Col     = input.color(color.new(color.green, 85), "Q2", inline = "qc", group = G_BOX)
+q3Col     = input.color(color.new(color.red, 85), "Q3", inline = "qc", group = G_BOX)
+q4Col     = input.color(color.new(color.blue, 85), "Q4", inline = "qc", group = G_BOX)
+boxBorder = input.bool(false, "Box borders", group = G_BOX)
+showV     = input.bool(true, "Full-height quarter lines", inline = "v", group = G_BOX)
+vCol      = input.color(color.new(color.gray, 40), "", inline = "v", group = G_BOX)
+vStyleS   = input.string("Dotted", "", options = ["Solid", "Dashed", "Dotted"], inline = "v", group = G_BOX)
+showQLbl  = input.bool(true, "Quarter labels", inline = "ql", group = G_BOX)
+qLblCol   = input.color(color.gray, "", inline = "ql", group = G_BOX)
+showOut   = input.bool(true, "Dashed outline of the whole cycle", inline = "o", group = G_BOX)
+outCol    = input.color(color.new(color.gray, 30), "", inline = "o", group = G_BOX)
+
+G_TO = "True opens (Q2 open of each cycle)"
+showTYO  = input.bool(true, "TYO  True Year Open", inline = "ty", group = G_TO)
+cTYO     = input.color(#e040fb, "", inline = "ty", group = G_TO)
+showTMO  = input.bool(true, "TMO  True Month Open", inline = "tm", group = G_TO)
+cTMO     = input.color(#ff9800, "", inline = "tm", group = G_TO)
+showTWO  = input.bool(true, "TWO  True Week Open", inline = "tw", group = G_TO)
+cTWO     = input.color(#2962ff, "", inline = "tw", group = G_TO)
+showTDO  = input.bool(true, "TDO  True Day Open", inline = "td", group = G_TO)
+cTDO     = input.color(#00bcd4, "", inline = "td", group = G_TO)
+showTSO  = input.bool(true, "AO / LO / NYO / PMO  True Session Opens", inline = "ts", group = G_TO)
+cTSO     = input.color(#9e9e9e, "", inline = "ts", group = G_TO)
+showT90  = input.bool(false, "T90  True 90-Minute Open", inline = "t9", group = G_TO)
+cT90     = input.color(#787b86, "", inline = "t9", group = G_TO)
+toWidth  = input.int(1, "Line width", minval = 1, maxval = 4, group = G_TO)
+toStyleS = input.string("Dotted", "Line style", options = ["Solid", "Dashed", "Dotted"], group = G_TO)
+toPrice  = input.bool(true, "Show price in labels", group = G_TO)
+
+G_Q4 = "Previous Q4 open / close"
+pq4Y      = input.bool(true, "Yearly", inline = "p1", group = G_Q4)
+pq4M      = input.bool(true, "Monthly", inline = "p1", group = G_Q4)
+pq4W      = input.bool(true, "Weekly", inline = "p1", group = G_Q4)
+pq4D      = input.bool(true, "Daily", inline = "p2", group = G_Q4)
+pq4S      = input.bool(false, "Session", inline = "p2", group = G_Q4)
+pq490     = input.bool(false, "90 Min", inline = "p2", group = G_Q4, tooltip = "When a cycle ends, its Q4 open and Q4 close are drawn from the start of that Q4 across the whole next cycle. Weekly Q4 is Thursday, so the weekly Q4 close is Thursday's close.")
+pq4OCol   = input.color(#ff5252, "Q4 open", inline = "pc", group = G_Q4)
+pq4CCol   = input.color(#4caf50, "Q4 close", inline = "pc", group = G_Q4)
+pq4StyleS = input.string("Dashed", "Line style", options = ["Solid", "Dashed", "Dotted"], group = G_Q4)
+
+// ───────────────────────────── Helpers ─────────────────────────────
+
+lineStyle(string s) =>
+    s == "Solid" ? line.style_solid : s == "Dashed" ? line.style_dashed : line.style_dotted
+
+vStyle    = lineStyle(vStyleS)
+toStyle   = lineStyle(toStyleS)
+pq4Style  = lineStyle(pq4StyleS)
+
+fmt(string name, float p) =>
+    toPrice ? name + " (" + str.tostring(p, format.mintick) + ")" : name
+
+qColor(int q) =>
+    q == 0 ? q1Col : q == 1 ? q2Col : q == 2 ? q3Col : q4Col
+
+// ───────────────────────────── Time maths ─────────────────────────────
+// Shift by 6 hours so the trading day (18:00 NY) starts at 00:00 of its own date.
+
+int   SHIFT  = 6 * 3600000
+int   s      = time + SHIFT
+int   tdY    = year(s, tz)
+int   tdM    = month(s, tz)
+int   tdD    = dayofmonth(s, tz)
+int   monIdx = (dayofweek(s, tz) + 5) % 7                     // Mon = 0 ... Sun = 6
+float mins   = hour(s, tz) * 60 + minute(s, tz) + second(s, tz) / 60.0
+int   dayNum = int(math.round(timestamp("UTC", tdY, tdM, tdD, 0, 0) / 86400000.0))
+int   dayId  = tdY * 10000 + tdM * 100 + tdD
+
+// Yearly
+int yId = tdY
+int yQ  = int((tdM - 1) / 3)
+// Monthly: weeks counted by Mondays. Days before the first Monday join Q1, a 5th week joins Q4.
+int lastMon = tdD - monIdx
+int mId = tdY * 100 + tdM
+int mQ  = lastMon <= 0 ? 0 : math.min(int((lastMon - 1) / 7), 3)
+// Weekly: Mon..Thu = Q1..Q4, Friday (and weekend on 24/7 markets) = index 4
+int wId = int(math.floor((dayNum + 3) / 7.0))                 // 1 Jan 1970 was a Thursday
+int wQ  = math.min(monIdx, 4)
+// Daily: four 6-hour sessions
+int dQ  = int(mins / 360)
+// Session: four 90-minute quarters
+int sId = dayId * 10 + dQ
+int sQ  = int((mins - dQ * 360) / 90)
+string sName = dQ == 0 ? "AO" : dQ == 1 ? "LO" : dQ == 2 ? "NYO" : "PMO"
+// 90 minute: four 22.5-minute quarters
+int n90 = int(mins / 90)
+int nId = dayId * 100 + n90
+int nQ  = int((mins - n90 * 90) / 22.5)
+
+float tfMin   = timeframe.in_seconds() / 60.0
+bool  inRange = time >= last_bar_time - lookback * 86400000
+bool  okY = not autoHide or tfMin <= 10080
+bool  okM = not autoHide or tfMin <= 1440
+bool  okW = not autoHide or tfMin <= 240
+bool  okD = not autoHide or tfMin <= 60
+bool  okS = not autoHide or tfMin <= 15
+bool  ok9 = not autoHide or tfMin <= 5
+
+// ───────────────────────────── Cycle engine ─────────────────────────────
+
+type Cycle
+    string tag
+    int    id
+    int    q
+    line   toLn
+    label  toLb
+    float  q4o
+    float  q4c
+    int    q4t
+    line   po
+    line   pc
+    label  pol
+    label  pcl
+
+method run(Cycle c, int id, int q, bool draw, bool showTO, string toName, color toCol, bool showPQ4) =>
+    bool started  = not na(c.id)
+    bool newCycle = started and id != c.id
+    bool newQ     = started and (newCycle or q != c.q)
+
+    if newCycle
+        c.toLn := na
+        c.toLb := na
+        c.po   := na
+        c.pc   := na
+        c.pol  := na
+        c.pcl  := na
+        if draw and showPQ4 and not na(c.q4o)
+            c.po  := line.new(c.q4t, c.q4o, time_close, c.q4o, xloc.bar_time, color = pq4OCol, style = pq4Style)
+            c.pc  := line.new(c.q4t, c.q4c, time_close, c.q4c, xloc.bar_time, color = pq4CCol, style = pq4Style)
+            c.pol := label.new(time_close, c.q4o, fmt("Prev " + c.tag + " Q4 O", c.q4o), xloc.bar_time, color = color(na), style = label.style_label_left, textcolor = pq4OCol, size = size.small)
+            c.pcl := label.new(time_close, c.q4c, fmt("Prev " + c.tag + " Q4 C", c.q4c), xloc.bar_time, color = color(na), style = label.style_label_left, textcolor = pq4CCol, size = size.small)
+        c.q4o := na
+        c.q4c := na
+        c.q4t := na
+
+    // Track this cycle's Q4 open and close
+    if q == 3
+        if newQ
+            c.q4o := open
+            c.q4t := time
+        if not na(c.q4o)
+            c.q4c := close
+
+    // True open = first bar of Q2
+    if newQ and q == 1 and draw and showTO
+        c.toLn := line.new(time, open, time_close, open, xloc.bar_time, color = toCol, style = toStyle, width = toWidth)
+        c.toLb := label.new(time_close, open, fmt(toName, open), xloc.bar_time, color = color(na), style = label.style_label_left, textcolor = toCol, size = size.small)
+
+    // Extend live lines to the current bar until the cycle ends
+    if not na(c.toLn)
+        c.toLn.set_x2(time_close)
+        c.toLb.set_x(time_close)
+    if not na(c.po)
+        c.po.set_x2(time_close)
+        c.pc.set_x2(time_close)
+        c.pol.set_x(time_close)
+        c.pcl.set_x(time_close)
+
+    c.id := id
+    c.q  := q
+
+var Cycle cY = Cycle.new("Y")
+var Cycle cM = Cycle.new("M")
+var Cycle cW = Cycle.new("W")
+var Cycle cD = Cycle.new("D")
+var Cycle cS = Cycle.new("Sess")
+var Cycle c9 = Cycle.new("90m")
+
+cY.run(yId,   yQ, okY,            showTYO, "TYO", cTYO, pq4Y)
+cM.run(mId,   mQ, okM,            showTMO, "TMO", cTMO, pq4M)
+cW.run(wId,   wQ, okW,            showTWO, "TWO", cTWO, pq4W)
+cD.run(dayId, dQ, okD and inRange, showTDO, "TDO", cTDO, pq4D)
+cS.run(sId,   sQ, okS and inRange, showTSO, sName, cTSO, pq4S)
+c9.run(nId,   nQ, ok9 and inRange, showT90, "T90", cT90, pq490)
+
+// ───────────────────────────── Quarter boxes ─────────────────────────────
+
+string bc = boxCycle != "Auto" ? boxCycle : tfMin <= 5 ? "Session (6H)" : tfMin <= 60 ? "Daily" : tfMin <= 240 ? "Weekly" : tfMin <= 1440 ? "Monthly" : "Yearly"
+
+int bId = switch bc
+    "Yearly"       => yId
+    "Monthly"      => mId
+    "Weekly"       => wId
+    "Daily"        => dayId
+    "Session (6H)" => sId
+    "90 Minute"    => nId
+    => na
+int bQ = switch bc
+    "Yearly"       => yQ
+    "Monthly"      => mQ
+    "Weekly"       => wQ
+    "Daily"        => dQ
+    "Session (6H)" => sQ
+    "90 Minute"    => nQ
+    => na
+bool bIntraday = bc == "Daily" or bc == "Session (6H)" or bc == "90 Minute"
+bool bDraw     = not na(bId) and (inRange or not bIntraday)
+
+type BoxState
+    int   id
+    int   q
+    box   qb
+    box   ob
+    label ql
+
+var BoxState bs = BoxState.new()
+
+if bDraw
+    bool nc = na(bs.id) or bId != bs.id
+    bool nq = nc or bQ != bs.q
+    if nq
+        color qc = qColor(bQ)
+        bs.qb := box.new(time, high, time_close, low, xloc = xloc.bar_time, border_color = boxBorder ? color.new(qc, 40) : color(na), bgcolor = qc)
+        if showV
+            line.new(time, low, time, high, xloc.bar_time, extend.both, vCol, vStyle)
+        string qName = bc == "Weekly" and bQ == 4 ? "Fri" : "Q" + str.tostring(bQ + 1)
+        bs.ql := showQLbl ? label.new(time, high, qName, xloc.bar_time, color = color(na), style = label.style_label_lower_left, textcolor = qLblCol, size = size.small) : na
+    else
+        bs.qb.set_top(math.max(bs.qb.get_top(), high))
+        bs.qb.set_bottom(math.min(bs.qb.get_bottom(), low))
+        bs.qb.set_right(time_close)
+        if not na(bs.ql)
+            bs.ql.set_y(bs.qb.get_top())
+    if showOut
+        if nc
+            bs.ob := box.new(time, high, time_close, low, xloc = xloc.bar_time, border_color = outCol, border_style = line.style_dashed, bgcolor = color(na))
+        else if not na(bs.ob)
+            bs.ob.set_top(math.max(bs.ob.get_top(), high))
+            bs.ob.set_bottom(math.min(bs.ob.get_bottom(), low))
+            bs.ob.set_right(time_close)
+    bs.id := bId
+    bs.q  := bQ
