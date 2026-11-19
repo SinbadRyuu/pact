@@ -87,6 +87,13 @@ smtMin    = input.int(2, "Symbols that must disagree", minval = 1, maxval = 3, g
 showSmtTbl = input.bool(true, "Show SMT check table", group = G_SMT, tooltip = "Bottom-right table showing, for the current quarter, each symbol's previous quarter high/low, this quarter's high/low so far, and whether it has taken the level. Hover any SMT label for the same numbers at that SMT.")
 smtRemove = input.bool(true, "Remove an SMT if every symbol ends up agreeing later in the quarter", group = G_SMT)
 
+G_BIAS = "Trend bias (buys or sells)"
+showBias  = input.bool(true, "Show bias panel", group = G_BIAS, tooltip = "Scores three things and shows whether to look for buys or sells:\n1. Price above or below the true open of the next cycle up (e.g. the session true open on 5m)\n2. Price above or below the true open of the cycle above that (e.g. TDO on 5m)\n3. The direction of the latest SMT\nBullish when the score is +2 or more, bearish at -2 or less, otherwise neutral (wait).")
+biasBg    = input.bool(false, "Tint chart background by bias", group = G_BIAS)
+biasMarks = input.bool(true, "Mark bias changes on the chart", group = G_BIAS)
+biasBullC = input.color(#4caf50, "Bullish", inline = "bc", group = G_BIAS)
+biasBearC = input.color(#f44336, "Bearish", inline = "bc", group = G_BIAS)
+
 // ───────────────────────────── Helpers ─────────────────────────────
 
 lineStyle(string s) =>
@@ -163,6 +170,8 @@ type Cycle
     line   pc
     label  pol
     label  pcl
+    float  toPx
+    string toNm
 
 method run(Cycle c, int id, int q, bool draw, bool showTO, string toName, color toCol, bool showPQ4) =>
     bool started  = not na(c.id)
@@ -184,6 +193,7 @@ method run(Cycle c, int id, int q, bool draw, bool showTO, string toName, color 
         c.q4o := na
         c.q4c := na
         c.q4t := na
+        c.toPx := na
 
     // Track this cycle's Q4 open and close
     if q == 3
@@ -194,6 +204,9 @@ method run(Cycle c, int id, int q, bool draw, bool showTO, string toName, color 
             c.q4c := close
 
     // True open = first bar of Q2
+    if newQ and q == 1
+        c.toPx := open
+        c.toNm := toName
     if newQ and q == 1 and draw and showTO
         c.toLn := line.new(time, open, time_close, open, xloc.bar_time, color = toCol, style = toStyle, width = toWidth)
         c.toLb := label.new(time_close, open, fmt(toName, open), xloc.bar_time, color = color(na), style = label.style_label_left, textcolor = toCol, size = size.small)
@@ -371,6 +384,9 @@ type Smt
     array<float> pBL
     bool         bearDone = false
     bool         bullDone = false
+    bool         qBear = false
+    bool         qBull = false
+    int          dir = 0
     line         lastBearLn
     label        lastBearLb
     line         lastBullLn
@@ -399,7 +415,12 @@ array<string> nmArr = array.from(symName(sym1), symName(sym2), symName(sym3))
 
 if showSMT and not na(bId)
     if na(sm.cid) or bId != sm.cid or bQ != sm.q
-        // New quarter: the finished quarter becomes the reference
+        // New quarter: remember the direction of the SMT the finished quarter ended with
+        if sm.qBear != sm.qBull
+            sm.dir := sm.qBull ? 1 : -1
+        sm.qBear := false
+        sm.qBull := false
+        // The finished quarter becomes the reference
         sm.pAH  := sm.aH
         sm.pAL  := sm.aL
         sm.pAHT := sm.aHT
@@ -464,6 +485,8 @@ if showSMT and not na(bId)
         bool bull = nValid > 0 and nBull >= need
         curBear := bear
         curBull := bull
+        sm.qBear := bear
+        sm.qBull := bull
         curNeed := need
 
         // Bearish: a straight line joining the previous quarter high and this quarter's high
@@ -556,3 +579,60 @@ if barstate.islast and showSMT and showSmtTbl and not na(bId)
     tCell(0, 5, "SMT (needs " + str.tostring(curNeed) + ")", color.white)
     tCell(3, 5, curBear ? "BEARISH" : "none", curBear ? smtBearC : color.gray)
     tCell(6, 5, curBull ? "BULLISH" : "none", curBull ? smtBullC : color.gray)
+
+// ───────────────────────────── Trend bias ─────────────────────────────
+// Next two cycles up from the one on the chart supply the true opens.
+
+Cycle p1 = switch bc
+    "90 Minute"    => cS
+    "Session (6H)" => cD
+    "Daily"        => cW
+    "Weekly"       => cM
+    => cY
+Cycle p2 = switch bc
+    "90 Minute"    => cD
+    "Session (6H)" => cW
+    "Daily"        => cM
+    => cY
+bool oneTO = bc == "Monthly" or bc == "Yearly" or bc == "Off"
+string p2Fallback = bc == "90 Minute" ? "TDO" : bc == "Session (6H)" ? "TWO" : bc == "Daily" ? "TMO" : "TYO"
+string p1Fallback = bc == "90 Minute" ? "Session TO" : bc == "Session (6H)" ? "TDO" : bc == "Daily" ? "TWO" : bc == "Weekly" ? "TMO" : "TYO"
+
+sideOf(float px) =>
+    na(px) ? 0 : close > px ? 1 : close < px ? -1 : 0
+
+int s1      = sideOf(p1.toPx)
+int s2      = oneTO ? 0 : sideOf(p2.toPx)
+int smtLive = curBull and not curBear ? 1 : curBear and not curBull ? -1 : sm.dir
+int s3      = showSMT ? smtLive : 0
+int score   = s1 + s2 + s3
+int bias    = score >= 2 ? 1 : score <= -2 ? -1 : 0
+
+bgcolor(showBias and biasBg ? (bias == 1 ? color.new(biasBullC, 92) : bias == -1 ? color.new(biasBearC, 92) : na) : na)
+
+bool biasChanged = bias != nz(bias[1]) and bar_index > 0
+if showBias and biasMarks and biasChanged and bias != 0 and bDraw
+    label.new(bar_index, bias == 1 ? low : high, bias == 1 ? "BUYS" : "SELLS", color = bias == 1 ? biasBullC : biasBearC, style = bias == 1 ? label.style_label_up : label.style_label_down, textcolor = color.white, size = size.tiny)
+
+alertcondition(biasChanged and bias == 1, "Bias turned bullish", "Quarterly Theory bias turned BULLISH on {{ticker}}: look for buys")
+alertcondition(biasChanged and bias == -1, "Bias turned bearish", "Quarterly Theory bias turned BEARISH on {{ticker}}: look for sells")
+
+var table biasTbl = table.new(position.top_right, 2, 5, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1)
+
+sideTxt(int sd) =>
+    sd == 1 ? "price above" : sd == -1 ? "price below" : "not set yet"
+sideCol(int sd) =>
+    sd == 1 ? biasBullC : sd == -1 ? biasBearC : color.gray
+
+if barstate.islast and showBias
+    color bCol = bias == 1 ? biasBullC : bias == -1 ? biasBearC : color.gray
+    table.cell(biasTbl, 0, 0, "BIAS", text_color = color.white, text_size = size.small)
+    table.cell(biasTbl, 1, 0, bias == 1 ? "BULLISH - look for buys" : bias == -1 ? "BEARISH - look for sells" : "NEUTRAL - wait", text_color = color.white, bgcolor = color.new(bCol, 30), text_size = size.small)
+    table.cell(biasTbl, 0, 1, (na(p1.toNm) ? p1Fallback : p1.toNm) + " " + fmtP(p1.toPx), text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 1, sideTxt(s1), text_color = sideCol(s1), text_size = size.small)
+    table.cell(biasTbl, 0, 2, oneTO ? "-" : (na(p2.toNm) ? p2Fallback : p2.toNm) + " " + fmtP(p2.toPx), text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 2, oneTO ? "-" : sideTxt(s2), text_color = sideCol(s2), text_size = size.small)
+    table.cell(biasTbl, 0, 3, "Latest SMT", text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 3, not showSMT ? "off" : s3 == 1 ? "bullish" : s3 == -1 ? "bearish" : "none", text_color = sideCol(s3), text_size = size.small)
+    table.cell(biasTbl, 0, 4, "Score", text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 4, (score > 0 ? "+" : "") + str.tostring(score) + " (needs +/-2)", text_color = bCol, text_size = size.small)
