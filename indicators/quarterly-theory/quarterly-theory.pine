@@ -91,7 +91,10 @@ smtRemove = input.bool(true, "Remove an SMT if every symbol ends up agreeing lat
 G_BIAS = "Trend bias (buys or sells)"
 showBias  = input.bool(true, "Show bias panel", group = G_BIAS, tooltip = "Scores four things (+1 bullish, -1 bearish each) and shows whether to look for buys or sells:\n1. Price above or below the true open of the next cycle up (e.g. the session true open on 5m)\n2. Price above or below the true open of the cycle above that (e.g. TDO on 5m)\n3. Quarter structure: the last finished quarter made a higher high and higher low (or lower high and lower low) than the one before\n4. An SMT from this quarter or the one just finished (older SMTs are ignored)\nBullish at +2 or more, bearish at -2 or less, otherwise neutral (wait).")
 biasBg    = input.bool(false, "Tint chart background by bias", group = G_BIAS)
-biasMarks = input.bool(true, "Mark bias changes on the chart", group = G_BIAS)
+biasMarks = input.bool(false, "Mark every bias change on the chart", group = G_BIAS, tooltip = "Off by default: the bias can flip often. Use the setups below for trade ideas.")
+showSetups = input.bool(true, "Show high-probability setups (BUY / SELL)", group = G_BIAS, tooltip = "A setup needs ALL of these:\n1. A fresh SSMT in the trade direction (chart cycle or the cycle above)\n2. Price on the same side of BOTH true opens (below both for sells, above both for buys)\n3. Quarter structure not against the trade\n4. Confirmation: a candle CLOSES beyond the SSMT candle (below its low for sells, above its high for buys) within the bars allowed below\n5. At most one setup per quarter of the cycle above (per 90 minutes on 5m)\nIf the SSMT is cancelled or the true opens stop agreeing before confirmation, nothing is shown.")
+setupUpOnly = input.bool(false, "Only use SSMT from the cycle above (stricter, fewer setups)", group = G_BIAS)
+setupBars  = input.int(6, "Bars allowed for confirmation", minval = 1, maxval = 50, group = G_BIAS)
 biasBullC = input.color(#4caf50, "Bullish", inline = "bc", group = G_BIAS)
 biasBearC = input.color(#f44336, "Bearish", inline = "bc", group = G_BIAS)
 
@@ -701,6 +704,55 @@ if showBias and biasMarks and biasChanged and bias != 0 and bDraw
 
 alertcondition(biasChanged and bias == 1, "Bias turned bullish", "Quarterly Theory bias turned BULLISH on {{ticker}}: look for buys")
 alertcondition(biasChanged and bias == -1, "Bias turned bearish", "Quarterly Theory bias turned BEARISH on {{ticker}}: look for sells")
+
+// ───────────────────────────── High-probability setups ─────────────────────────────
+
+var int   pend     = 0
+var float pendLvl  = na
+var int   pendBar  = na
+var int   lastSigK = na
+var string pendWhy = ""
+int  chartKey  = na(bId) ? na : bId * 10 + bQ
+int  parentKey = na(pcId) ? chartKey : pcId * 10 + pcQ
+bool bearTrig  = setupUpOnly ? newBearUp : newBearSmt or newBearUp
+bool bullTrig  = setupUpOnly ? newBullUp : newBullSmt or newBullUp
+bool tosBear   = s1 == -1 and (oneTO or s2 == -1)
+bool tosBull   = s1 == 1 and (oneTO or s2 == 1)
+bool sellSetup = false
+bool buySetup  = false
+
+if showSetups and not na(chartKey)
+    // Arm on a fresh SSMT when the true opens and structure agree
+    if bearTrig and tosBear and s4 != 1 and parentKey != lastSigK
+        pend    := -1
+        pendLvl := low
+        pendBar := bar_index
+        pendWhy := (newBearUp ? pcTag : "SSMT") + " bearish, price below both true opens"
+    else if bullTrig and tosBull and s4 != -1 and parentKey != lastSigK
+        pend    := 1
+        pendLvl := high
+        pendBar := bar_index
+        pendWhy := (newBullUp ? pcTag : "SSMT") + " bullish, price above both true opens"
+    // Cancel if it expires, the SSMT is withdrawn, or the true opens stop agreeing
+    if pend != 0 and bar_index > pendBar
+        bool stillSsmt = pend == -1 ? (curBear or upBear) : (curBull or upBull)
+        bool stillTos  = pend == -1 ? tosBear : tosBull
+        if bar_index - pendBar > setupBars or not stillSsmt or not stillTos or parentKey == lastSigK
+            pend := 0
+    // Confirm on a closed candle beyond the SSMT candle
+    if pend != 0 and bar_index > pendBar and barstate.isconfirmed
+        if pend == -1 and close < pendLvl
+            sellSetup := true
+        else if pend == 1 and close > pendLvl
+            buySetup := true
+        if sellSetup or buySetup
+            lastSigK := parentKey
+            if bDraw
+                label.new(bar_index, sellSetup ? high : low, sellSetup ? "SELL" : "BUY", color = sellSetup ? biasBearC : biasBullC, style = sellSetup ? label.style_label_down : label.style_label_up, textcolor = color.white, size = size.small, tooltip = pendWhy + (sellSetup ? ". Confirmed: close below the SSMT candle low " : ". Confirmed: close above the SSMT candle high ") + fmtP(pendLvl))
+            pend := 0
+
+alertcondition(sellSetup, "SELL setup", "Quarterly Theory SELL setup on {{ticker}}")
+alertcondition(buySetup, "BUY setup", "Quarterly Theory BUY setup on {{ticker}}")
 
 var table biasTbl = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1)
 

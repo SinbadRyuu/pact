@@ -31,7 +31,15 @@ All times are New York time. The trading day starts at 18:00.
   3. Quarter structure: the last finished quarter made a higher high and higher low, or a lower high and lower low, than the one before
   4. An SMT from this quarter or the one just finished. Older SMTs are ignored.
 
-  A score of +2 or more is bullish and -2 or less is bearish. Bias changes are marked BUYS / SELLS on the chart, and there are "Bias turned bullish" and "Bias turned bearish" alerts. The background tint is optional.
+  A score of +2 or more is bullish and -2 or less is bearish. Every bias change can be marked BUYS / SELLS on the chart (off by default), and there are "Bias turned bullish" and "Bias turned bearish" alerts. The background tint is optional.
+
+- **High-probability setups (BUY / SELL)**: shown only when all of these line up:
+  1. A fresh SSMT in the trade direction, on the chart cycle or the cycle above. You can require the cycle above only.
+  2. Price on the same side of both true opens: below both for sells, above both for buys.
+  3. Quarter structure not against the trade.
+  4. A candle closes beyond the SSMT candle (below its low for sells, above its high for buys) within 6 bars. You can change the number of bars.
+
+  There is at most one setup per quarter of the cycle above (per 90 minutes on 5m). A setup is dropped if the SSMT is cancelled or the true opens stop agreeing before it confirms. Each one has "SELL setup" and "BUY setup" alerts.
 
 ## Adaptive mode (default)
 
