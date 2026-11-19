@@ -184,7 +184,7 @@ findCandidate(array<float> ps, array<int> bs, float p2, int b2, float a, int dir
     float tol = tolMode == "ATR" ? tolAtr * a : tolPct / 100 * p2
     int n = ps.size()
     if n > 0
-        for j = n - 1 to 0 by -1
+        for j = n - 1 to 0
             float p1 = ps.get(j)
             int b1 = bs.get(j)
             int sep = b2 - b1
@@ -553,7 +553,7 @@ if barstate.isconfirmed
 
     // 3. Confirmed patterns: retest, then stop or target.
     if not na(a) and tracked.size() > 0
-        for k = tracked.size() - 1 to 0 by -1
+        for k = tracked.size() - 1 to 0
             Pattern p = tracked.get(k)
             if p.breakBar != bar_index
                 int s = p.dir
