@@ -38,6 +38,9 @@ export const defaults = {
   trackBars: 150, // stop following a signal after this many bars
   stopAtr: 0.25, // stop buffer beyond the highest peak / lowest bottom, × ATR
   atrLen: 14,
+  // A double top and a double bottom may not share bars: the one found first stands, and an
+  // opposite pattern overlapping it is ignored.
+  noOverlap: true,
 }
 
 // Wilder's ATR, the same as ta.atr in Pine.
@@ -121,6 +124,7 @@ export function analyse(candles, params = {}) {
       list.push({ price, bar: p })
       if (list.length > 12) list.shift()
       if (!pat) continue
+      if (P.noOverlap && overlapsOpposite(patterns, pat, i)) continue
       const old = active[dir]
       if (old) {
         old.state = `superseded`
@@ -206,6 +210,16 @@ export function analyse(candles, params = {}) {
     }
   }
   return { patterns, events }
+}
+
+// The bars a pattern occupies: from its first swing to now while developing, or to its breakout.
+// Invalidated, expired and superseded patterns no longer count.
+function overlapsOpposite(patterns, pat, i) {
+  return patterns.some((q) => {
+    if (q.dir === pat.dir || [`invalidated`, `expired`, `superseded`].includes(q.state)) return false
+    const end = q.state === `developing` ? i : q.breakBar
+    return pat.b1 <= end && pat.b2 >= q.b1
+  })
 }
 
 function tolerance(P, a, price) {

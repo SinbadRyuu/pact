@@ -37,6 +37,7 @@ minHeightAtr = input.float(2.0, "Minimum pattern height (× ATR)", minval = 0.5,
 minSep       = input.int(8, "Minimum bars between peaks", minval = 3, maxval = 200, group = grpD)
 maxSep       = input.int(120, "Maximum bars between peaks", minval = 10, maxval = 300, group = grpD)
 atrLen       = input.int(14, "ATR length", minval = 5, maxval = 100, group = grpD)
+noOverlap    = input.bool(true, "Don't let a double top and a double bottom overlap", group = grpD, tooltip = "The pattern found first stands. An opposite pattern that would share any of its bars is ignored, until the first one is invalidated or expires.")
 
 grpF = "Filters"
 trendFilter   = input.bool(true, "Require a prior trend into the first peak", group = grpF, tooltip = "A double top should follow a rise and a double bottom a fall. Off: any shape that passes the other rules counts.")
@@ -421,6 +422,26 @@ alertText(Pattern p, string stage) =>
         t += " | stop " + fmt(p.stop) + " | target " + fmt(p.target)
     t
 
+// True when p is a still-valid pattern in the other direction that shares bars with b1..b2. A
+// pattern occupies its bars from the first swing to now while developing, or to its breakout.
+blocksOpposite(Pattern p, int dir, int b1, int b2) =>
+    bool hit = false
+    if not na(p)
+        if p.dir != dir and p.state != "invalidated" and p.state != "expired" and p.state != "superseded"
+            int pEnd = p.state == "developing" ? bar_index : p.breakBar
+            hit := b1 <= pEnd and b2 >= p.b1
+    hit
+
+overlapsOpposite(Pattern pat) =>
+    bool hit = blocksOpposite(act.get(pat.dir == -1 ? 1 : 0), pat.dir, pat.b1, pat.b2)
+    for q in tracked
+        if blocksOpposite(q, pat.dir, pat.b1, pat.b2)
+            hit := true
+    for q in pastPats
+        if blocksOpposite(q, pat.dir, pat.b1, pat.b2)
+            hit := true
+    hit
+
 // Puts a finished pattern into history (or deletes it) and trims history to the limit.
 finish(Pattern p) =>
     p.paint()
@@ -455,6 +476,8 @@ if barstate.isconfirmed
             if ps.size() > 12
                 ps.shift()
                 bs.shift()
+            if not na(pat) and noOverlap and overlapsOpposite(pat)
+                pat := na
             if not na(pat)
                 Pattern old = act.get(d)
                 if not na(old)

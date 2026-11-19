@@ -142,3 +142,22 @@ test('on a long random walk: patterns of each kind, and no event changes when th
     assert.deepEqual(part, full.filter((e) => e.bar < cut), `events differ at ${cut}`)
   }
 })
+
+test('a double top and a double bottom never share bars: the first one found stands', () => {
+  // A W whose middle is an M: the M is found first, so the W around it is ignored.
+  const candles = path([140, 100, 121, 112, 121, 100, 130])
+  const both = analyse(candles, { noOverlap: false }).patterns
+  assert.deepEqual(both.map((p) => p.dir).sort(), [-1, 1], `without the rule both are found`)
+  const { patterns } = analyse(candles)
+  assert.equal(patterns.length, 1)
+  assert.equal(patterns[0].dir, -1)
+  // And on a long random walk no two opposite, still-valid patterns overlap.
+  const live = analyse(walk(3000)).patterns.filter((p) => ![`invalidated`, `expired`, `superseded`].includes(p.state))
+  for (const a of live) {
+    for (const b of live) {
+      if (a.dir === b.dir) continue
+      const aEnd = a.breakBar ?? Infinity
+      assert.ok(!(b.b1 <= aEnd && b.b2 >= a.b1 && b.detectBar > a.detectBar), `patterns ${a.id} and ${b.id} overlap`)
+    }
+  }
+})

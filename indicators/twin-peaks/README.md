@@ -58,6 +58,8 @@ To get alerts: **Alerts → Create alert → Condition: Twin Peaks**. Then pick 
 
 If a newer pair forms while a pattern is still developing, the newer one replaces it. The old one was provisional, so it is removed.
 
+A double top and a double bottom never share bars. The one found first stands. An opposite pattern that would overlap it is ignored, unless the first one has been invalidated or has expired. You can switch this off under **Detection**.
+
 ## Repainting
 
 - Every decision is made on a **closed bar**. On the live bar, nothing changes until it closes.
@@ -67,7 +69,7 @@ If a newer pair forms while a pattern is still developing, the newer one replace
 
 ## What has been checked, and what hasn't
 
-- ✅ The rules in `twin-peaks.js` pass 11 tests: clean M and W patterns, rejected shapes, invalidation, expiry, retest, no duplicate events and no repainting.
+- ✅ The rules in `twin-peaks.js` pass 12 tests: clean M and W patterns, rejected shapes, invalidation, expiry, retest, no duplicate events, no overlapping tops and bottoms, and no repainting.
 - ✅ On recent public candles (BTC, ETH, SOL, PAXG gold and EUR on 15m, 1h, 4h and 1D), the defaults gave about 6 to 19 confirmed patterns per 1,000 bars. Run `node scan.js` to repeat this.
 - ⚠️ **`twin-peaks.pine` has not been compiled yet.** No TradingView compiler is available outside TradingView. The script was written for Pine v6 and reviewed line by line against the JavaScript model, but the first paste into TradingView is its first compile.
 - ⚠️ **There are no performance figures.** Win rate, profit factor and drawdown need a separate strategy script with defined entries, exits, costs and out-of-sample periods. That is Phase 6.
