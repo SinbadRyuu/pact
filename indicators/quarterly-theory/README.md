@@ -16,7 +16,7 @@ Pine Script v6 indicator for TradingView (`quarterly-theory.pine`). Paste it int
 
 All times are New York time. The trading day starts at 18:00.
 
-- **SMT divergence (quarter to quarter)**: each quarter is compared with the previous quarter of the same cycle, against up to three other symbols. An SMT is marked when at least two of them disagree with your chart: one side takes the previous quarter's high (or low) and the other doesn't. You can change the number in the settings, and if fewer symbols are available all of them must disagree. Each SMT is a straight line joining the two quarter highs (red, bearish) or the two quarter lows (green, bullish), whether the second one is higher or lower. If two SMTs in a row share a high or low, only the newest line is kept. Hover the label to see which symbols disagreed, with each symbol's previous quarter high/low and this quarter's high/low, so you can check every SMT. A table in the bottom-right corner shows the same check live for the current quarter. If every symbol ends up agreeing later in the quarter, the SMT is removed (you can turn this off). Leave the **Compare** symbols blank to pick automatically:
+- **SSMT, sequential SMT (quarter to quarter)**: each quarter is compared with the previous quarter of the same cycle, against up to three other symbols. An SMT is marked when at least two of them disagree with your chart: one side takes the previous quarter's high (or low) and the other doesn't. You can change the number in the settings, and if fewer symbols are available all of them must disagree. Each SMT is a straight line joining the two quarter highs (red, bearish) or the two quarter lows (green, bullish), whether the second one is higher or lower. If two SMTs in a row share a high or low, only the newest line is kept. Hover the label to see which symbols disagreed, with each symbol's previous quarter high/low and this quarter's high/low, so you can check every SMT. A table in the bottom-right corner shows the same check live for the current quarter. If every symbol ends up agreeing later in the quarter, the SMT is removed (you can turn this off). Leave the **Compare** symbols blank to pick automatically:
   - XAUUSD: XAGUSD, XPTUSD, XCUUSD (silver, platinum, copper)
   - GC: SI, PL, HG
   - ES / NQ / YM: the other two (micros map to micros)
@@ -24,6 +24,7 @@ All times are New York time. The trading day starts at 18:00.
 
   Tick **Invert** for inverse pairs such as DXY. There are "Bearish SMT" and "Bullish SMT" alert conditions.
 
+- **SSMT on the cycle above**: the same check also runs one cycle up, drawn as thicker dashed lines and labelled with the quarter size. On 5m that's "SSMT 90m" (the session's 90-minute quarters), on 15m "SSMT 6H" (the daily sessions), on 1H "SSMT Day", on 4H "SSMT Week" and on 1D "SSMT Qtr". It has its own alerts and can be turned off.
 - **Trend bias (buys or sells)**: a panel in the top-right corner says BULLISH (look for buys), BEARISH (look for sells) or NEUTRAL (wait). It scores four things, +1 bullish or -1 bearish each:
   1. Price above or below the true open of the next cycle up (on 5m: the session true open)
   2. Price above or below the true open of the cycle above that (on 5m: TDO)
