@@ -384,10 +384,17 @@ type Smt
     array<float> pBL
     bool         bearDone = false
     bool         bullDone = false
-    bool         qBear = false
-    bool         qBull = false
-    int          dir = 0
-    int          dirAge = 99
+    int          qn = 0
+    bool         bearOn = false
+    bool         bullOn = false
+    int          bearEvT
+    int          bullEvT
+    int          bearEvQn
+    int          bullEvQn
+    int          prevBearEvT
+    int          prevBullEvT
+    int          prevBearEvQn
+    int          prevBullEvQn
     line         lastBearLn
     label        lastBearLb
     line         lastBullLn
@@ -416,13 +423,10 @@ array<string> nmArr = array.from(symName(sym1), symName(sym2), symName(sym3))
 
 if showSMT and not na(bId)
     if na(sm.cid) or bId != sm.cid or bQ != sm.q
-        // New quarter: remember the direction of the SMT the finished quarter ended with
-        sm.dirAge += 1
-        if sm.qBear != sm.qBull
-            sm.dir    := sm.qBull ? 1 : -1
-            sm.dirAge := 0
-        sm.qBear := false
-        sm.qBull := false
+        // New quarter. SMTs that were standing when the last quarter ended stay on record.
+        sm.qn     += 1
+        sm.bearOn := false
+        sm.bullOn := false
         // The finished quarter becomes the reference
         sm.pAH  := sm.aH
         sm.pAL  := sm.aL
@@ -488,69 +492,89 @@ if showSMT and not na(bId)
         bool bull = nValid > 0 and nBull >= need
         curBear := bear
         curBull := bull
-        sm.qBear := bear
-        sm.qBull := bull
         curNeed := need
 
         // Bearish: a straight line joining the previous quarter high and this quarter's high
-        if bear and not sm.bearDone
+        if bear and not sm.bearOn
+            // A bearish SMT has formed (the event is recorded whether or not it is drawn)
+            if not sm.bearDone
+                newBearSmt := true
             sm.bearDone := true
-            newBearSmt  := true
+            sm.bearOn   := true
+            sm.prevBearEvT  := sm.bearEvT
+            sm.prevBearEvQn := sm.bearEvQn
+            sm.bearEvT  := time
+            sm.bearEvQn := sm.qn
             if bDraw
                 // A run of SMTs sharing a high: keep only the newest line
                 if sm.lastBearEnd == sm.pAHT and not na(sm.lastBearLn)
                     sm.lastBearLn.delete()
                     sm.lastBearLb.delete()
-                string tip = aUp ? syminfo.ticker + " took the previous quarter high. Did not: " + bearWho : bearWho + " took the previous quarter high. " + syminfo.ticker + " did not."
-                tip += "\n\n" + bearDet
                 sm.bearLn := line.new(sm.pAHT, sm.pAH, sm.aHT, sm.aH, xloc.bar_time, color = smtBearC, width = 2)
-                sm.bearLb := label.new(sm.aHT, sm.aH, "SMT", xloc.bar_time, color = color(na), style = label.style_label_down, textcolor = smtBearC, size = size.small, tooltip = tip)
+                sm.bearLb := label.new(sm.aHT, sm.aH, "SMT", xloc.bar_time, color = color(na), style = label.style_label_down, textcolor = smtBearC, size = size.small, tooltip = (aUp ? syminfo.ticker + " took the previous quarter high. Did not: " + bearWho : bearWho + " took the previous quarter high. " + syminfo.ticker + " did not.") + "\n\n" + bearDet)
                 sm.lastBearLn  := sm.bearLn
                 sm.lastBearLb  := sm.bearLb
                 sm.lastBearEnd := sm.aHT
-        else if bear and not na(sm.bearLn)
-            sm.bearLn.set_xy2(sm.aHT, sm.aH)
-            sm.bearLb.set_xy(sm.aHT, sm.aH)
-            sm.bearLb.set_tooltip((aUp ? syminfo.ticker + " took the previous quarter high. Did not: " + bearWho : bearWho + " took the previous quarter high. " + syminfo.ticker + " did not.") + "\n\n" + bearDet)
-            sm.lastBearEnd := sm.aHT
-        else if not bear and smtRemove and not na(sm.bearLn)
-            sm.bearLn.delete()
-            sm.bearLb.delete()
-            sm.bearLn := na
-            sm.bearLb := na
-            sm.lastBearLn  := na
-            sm.lastBearLb  := na
-            sm.lastBearEnd := na
+        else if bear and sm.bearOn
+            if not na(sm.bearLn)
+                sm.bearLn.set_xy2(sm.aHT, sm.aH)
+                sm.bearLb.set_xy(sm.aHT, sm.aH)
+                sm.bearLb.set_tooltip((aUp ? syminfo.ticker + " took the previous quarter high. Did not: " + bearWho : bearWho + " took the previous quarter high. " + syminfo.ticker + " did not.") + "\n\n" + bearDet)
+                sm.lastBearEnd := sm.aHT
+        else if not bear and sm.bearOn and smtRemove
+            // The other symbols caught up: this SMT no longer stands
+            sm.bearOn   := false
+            sm.bearEvT  := sm.prevBearEvT
+            sm.bearEvQn := sm.prevBearEvQn
+            if not na(sm.bearLn)
+                sm.bearLn.delete()
+                sm.bearLb.delete()
+                sm.bearLn := na
+                sm.bearLb := na
+                sm.lastBearLn  := na
+                sm.lastBearLb  := na
+                sm.lastBearEnd := na
 
         // Bullish: a straight line joining the previous quarter low and this quarter's low
-        if bull and not sm.bullDone
+        if bull and not sm.bullOn
+            // A bullish SMT has formed (the event is recorded whether or not it is drawn)
+            if not sm.bullDone
+                newBullSmt := true
             sm.bullDone := true
-            newBullSmt  := true
+            sm.bullOn   := true
+            sm.prevBullEvT  := sm.bullEvT
+            sm.prevBullEvQn := sm.bullEvQn
+            sm.bullEvT  := time
+            sm.bullEvQn := sm.qn
             if bDraw
                 // A run of SMTs sharing a low: keep only the newest line
                 if sm.lastBullEnd == sm.pALT and not na(sm.lastBullLn)
                     sm.lastBullLn.delete()
                     sm.lastBullLb.delete()
-                string tip = aDn ? syminfo.ticker + " took the previous quarter low. Did not: " + bullWho : bullWho + " took the previous quarter low. " + syminfo.ticker + " did not."
-                tip += "\n\n" + bullDet
                 sm.bullLn := line.new(sm.pALT, sm.pAL, sm.aLT, sm.aL, xloc.bar_time, color = smtBullC, width = 2)
-                sm.bullLb := label.new(sm.aLT, sm.aL, "SMT", xloc.bar_time, color = color(na), style = label.style_label_up, textcolor = smtBullC, size = size.small, tooltip = tip)
+                sm.bullLb := label.new(sm.aLT, sm.aL, "SMT", xloc.bar_time, color = color(na), style = label.style_label_up, textcolor = smtBullC, size = size.small, tooltip = (aDn ? syminfo.ticker + " took the previous quarter low. Did not: " + bullWho : bullWho + " took the previous quarter low. " + syminfo.ticker + " did not.") + "\n\n" + bullDet)
                 sm.lastBullLn  := sm.bullLn
                 sm.lastBullLb  := sm.bullLb
                 sm.lastBullEnd := sm.aLT
-        else if bull and not na(sm.bullLn)
-            sm.bullLn.set_xy2(sm.aLT, sm.aL)
-            sm.bullLb.set_xy(sm.aLT, sm.aL)
-            sm.bullLb.set_tooltip((aDn ? syminfo.ticker + " took the previous quarter low. Did not: " + bullWho : bullWho + " took the previous quarter low. " + syminfo.ticker + " did not.") + "\n\n" + bullDet)
-            sm.lastBullEnd := sm.aLT
-        else if not bull and smtRemove and not na(sm.bullLn)
-            sm.bullLn.delete()
-            sm.bullLb.delete()
-            sm.bullLn := na
-            sm.bullLb := na
-            sm.lastBullLn  := na
-            sm.lastBullLb  := na
-            sm.lastBullEnd := na
+        else if bull and sm.bullOn
+            if not na(sm.bullLn)
+                sm.bullLn.set_xy2(sm.aLT, sm.aL)
+                sm.bullLb.set_xy(sm.aLT, sm.aL)
+                sm.bullLb.set_tooltip((aDn ? syminfo.ticker + " took the previous quarter low. Did not: " + bullWho : bullWho + " took the previous quarter low. " + syminfo.ticker + " did not.") + "\n\n" + bullDet)
+                sm.lastBullEnd := sm.aLT
+        else if not bull and sm.bullOn and smtRemove
+            // The other symbols caught up: this SMT no longer stands
+            sm.bullOn   := false
+            sm.bullEvT  := sm.prevBullEvT
+            sm.bullEvQn := sm.prevBullEvQn
+            if not na(sm.bullLn)
+                sm.bullLn.delete()
+                sm.bullLb.delete()
+                sm.bullLn := na
+                sm.bullLb := na
+                sm.lastBullLn  := na
+                sm.lastBullLb  := na
+                sm.lastBullEnd := na
 
 alertcondition(newBearSmt, "Bearish SMT", "Bearish quarterly SMT on {{ticker}}")
 alertcondition(newBullSmt, "Bullish SMT", "Bullish quarterly SMT on {{ticker}}")
@@ -631,9 +655,13 @@ if not na(bId)
 int s4 = na(stPPH) ? 0 : stPH < stPPH and stPL < stPPL ? -1 : stPH > stPPH and stPL > stPPL ? 1 : 0
 
 // SMT only counts while it is fresh: formed in this quarter or the one just finished
-bool smtNow   = curBull != curBear
-bool smtFresh = smtNow or sm.dirAge == 0
-int  smtDir   = smtNow ? (curBull ? 1 : -1) : sm.dir
+// Latest SMT = the most recent one still standing, by the time it formed
+bool hasBear  = not na(sm.bearEvT)
+bool hasBull  = not na(sm.bullEvT)
+int  smtDir   = hasBear and (not hasBull or sm.bearEvT > sm.bullEvT) ? -1 : hasBull ? 1 : 0
+int  smtQn    = smtDir == -1 ? sm.bearEvQn : smtDir == 1 ? sm.bullEvQn : na
+int  smtAge   = na(smtQn) ? 99 : sm.qn - smtQn
+bool smtFresh = smtAge <= 1
 int  s3       = showSMT and smtFresh ? smtDir : 0
 int  score    = s1 + s2 + s3 + s4
 int bias    = score >= 2 ? 1 : score <= -2 ? -1 : 0
@@ -664,7 +692,8 @@ if barstate.islast and showBias
     table.cell(biasTbl, 1, 2, oneTO ? "-" : sideTxt(s2), text_color = sideCol(s2), text_size = size.small)
     table.cell(biasTbl, 0, 3, "Quarter structure", text_color = color.silver, text_size = size.small)
     table.cell(biasTbl, 1, 3, s4 == 1 ? "higher highs + lows" : s4 == -1 ? "lower highs + lows" : "mixed", text_color = sideCol(s4), text_size = size.small)
-    string smtTxt = not showSMT ? "off" : smtDir == 0 ? "none" : (smtDir == 1 ? "bullish" : "bearish") + (smtFresh ? "" : " (old, ignored)")
+    string smtAgeTxt = smtAge == 0 ? " (this quarter)" : smtAge == 1 ? " (last quarter)" : " (" + str.tostring(smtAge) + " quarters ago, ignored)"
+    string smtTxt = not showSMT ? "off" : smtDir == 0 ? "none" : (smtDir == 1 ? "bullish" : "bearish") + smtAgeTxt
     table.cell(biasTbl, 0, 4, "Latest SMT", text_color = color.silver, text_size = size.small)
     table.cell(biasTbl, 1, 4, smtTxt, text_color = sideCol(s3), text_size = size.small)
     table.cell(biasTbl, 0, 5, "Score", text_color = color.silver, text_size = size.small)
