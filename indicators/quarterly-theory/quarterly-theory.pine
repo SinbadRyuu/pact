@@ -84,6 +84,7 @@ inv3      = input.bool(false, "Invert", inline = "s3", group = G_SMT)
 smtBullC  = input.color(#4caf50, "Bullish", inline = "sc", group = G_SMT)
 smtBearC  = input.color(#f44336, "Bearish", inline = "sc", group = G_SMT)
 smtMin    = input.int(2, "Symbols that must disagree", minval = 1, maxval = 3, group = G_SMT, tooltip = "How many of the enabled comparison symbols must disagree with the chart before an SMT is marked. If fewer symbols are available (e.g. EURUSD only has GBPUSD), all of them must disagree.")
+showSmtTbl = input.bool(true, "Show SMT check table", group = G_SMT, tooltip = "Bottom-right table showing, for the current quarter, each symbol's previous quarter high/low, this quarter's high/low so far, and whether it has taken the level. Hover any SMT label for the same numbers at that SMT.")
 smtRemove = input.bool(true, "Remove an SMT if every symbol ends up agreeing later in the quarter", group = G_SMT)
 
 // ───────────────────────────── Helpers ─────────────────────────────
@@ -384,6 +385,12 @@ type Smt
 var Smt sm = Smt.new(bH = array.new<float>(3, na), bL = array.new<float>(3, na), pBH = array.new<float>(3, na), pBL = array.new<float>(3, na))
 bool newBearSmt = false
 bool newBullSmt = false
+bool curBear    = false
+bool curBull    = false
+int  curNeed    = 0
+
+fmtP(float v) =>
+    na(v) ? "-" : str.tostring(v, "#.#####")
 
 array<bool>   onArr = array.from(on1, on2, on3)
 array<float>  hiArr = array.from(h1, h2, h3)
@@ -434,12 +441,18 @@ if showSMT and not na(bId)
         bool aDn = sm.aL < sm.pAL
         string bearWho = ""
         string bullWho = ""
+        string bearDet = syminfo.ticker + ": prev Q high " + fmtP(sm.pAH) + ", this Q " + fmtP(sm.aH) + (aUp ? " -> TOOK IT" : " -> not taken")
+        string bullDet = syminfo.ticker + ": prev Q low " + fmtP(sm.pAL) + ", this Q " + fmtP(sm.aL) + (aDn ? " -> TOOK IT" : " -> not taken")
         int nValid = 0
         int nBear  = 0
         int nBull  = 0
         for i = 0 to 2
             if onArr.get(i) and not na(sm.pBH.get(i)) and not na(sm.bH.get(i))
                 nValid += 1
+                bool bUp = sm.bH.get(i) > sm.pBH.get(i)
+                bool bDn = sm.bL.get(i) < sm.pBL.get(i)
+                bearDet += "\n" + nmArr.get(i) + ": prev Q high " + fmtP(sm.pBH.get(i)) + ", this Q " + fmtP(sm.bH.get(i)) + (bUp ? " -> TOOK IT" : " -> not taken")
+                bullDet += "\n" + nmArr.get(i) + ": prev Q low " + fmtP(sm.pBL.get(i)) + ", this Q " + fmtP(sm.bL.get(i)) + (bDn ? " -> TOOK IT" : " -> not taken")
                 if (sm.bH.get(i) > sm.pBH.get(i)) != aUp
                     nBear += 1
                     bearWho := bearWho + (bearWho == "" ? "" : ", ") + nmArr.get(i)
@@ -449,6 +462,9 @@ if showSMT and not na(bId)
         int  need = math.min(smtMin, nValid)
         bool bear = nValid > 0 and nBear >= need
         bool bull = nValid > 0 and nBull >= need
+        curBear := bear
+        curBull := bull
+        curNeed := need
 
         // Bearish: a straight line joining the previous quarter high and this quarter's high
         if bear and not sm.bearDone
@@ -460,6 +476,7 @@ if showSMT and not na(bId)
                     sm.lastBearLn.delete()
                     sm.lastBearLb.delete()
                 string tip = aUp ? syminfo.ticker + " took the previous quarter high. Did not: " + bearWho : bearWho + " took the previous quarter high. " + syminfo.ticker + " did not."
+                tip += "\n\n" + bearDet
                 sm.bearLn := line.new(sm.pAHT, sm.pAH, sm.aHT, sm.aH, xloc.bar_time, color = smtBearC, width = 2)
                 sm.bearLb := label.new(sm.aHT, sm.aH, "SMT", xloc.bar_time, color = color(na), style = label.style_label_down, textcolor = smtBearC, size = size.small, tooltip = tip)
                 sm.lastBearLn  := sm.bearLn
@@ -468,6 +485,7 @@ if showSMT and not na(bId)
         else if bear and not na(sm.bearLn)
             sm.bearLn.set_xy2(sm.aHT, sm.aH)
             sm.bearLb.set_xy(sm.aHT, sm.aH)
+            sm.bearLb.set_tooltip((aUp ? syminfo.ticker + " took the previous quarter high. Did not: " + bearWho : bearWho + " took the previous quarter high. " + syminfo.ticker + " did not.") + "\n\n" + bearDet)
             sm.lastBearEnd := sm.aHT
         else if not bear and smtRemove and not na(sm.bearLn)
             sm.bearLn.delete()
@@ -488,6 +506,7 @@ if showSMT and not na(bId)
                     sm.lastBullLn.delete()
                     sm.lastBullLb.delete()
                 string tip = aDn ? syminfo.ticker + " took the previous quarter low. Did not: " + bullWho : bullWho + " took the previous quarter low. " + syminfo.ticker + " did not."
+                tip += "\n\n" + bullDet
                 sm.bullLn := line.new(sm.pALT, sm.pAL, sm.aLT, sm.aL, xloc.bar_time, color = smtBullC, width = 2)
                 sm.bullLb := label.new(sm.aLT, sm.aL, "SMT", xloc.bar_time, color = color(na), style = label.style_label_up, textcolor = smtBullC, size = size.small, tooltip = tip)
                 sm.lastBullLn  := sm.bullLn
@@ -496,6 +515,7 @@ if showSMT and not na(bId)
         else if bull and not na(sm.bullLn)
             sm.bullLn.set_xy2(sm.aLT, sm.aL)
             sm.bullLb.set_xy(sm.aLT, sm.aL)
+            sm.bullLb.set_tooltip((aDn ? syminfo.ticker + " took the previous quarter low. Did not: " + bullWho : bullWho + " took the previous quarter low. " + syminfo.ticker + " did not.") + "\n\n" + bullDet)
             sm.lastBullEnd := sm.aLT
         else if not bull and smtRemove and not na(sm.bullLn)
             sm.bullLn.delete()
@@ -508,3 +528,31 @@ if showSMT and not na(bId)
 
 alertcondition(newBearSmt, "Bearish SMT", "Bearish quarterly SMT on {{ticker}}")
 alertcondition(newBullSmt, "Bullish SMT", "Bullish quarterly SMT on {{ticker}}")
+
+// ───────────────────────────── SMT check table ─────────────────────────────
+
+var table smtTbl = table.new(position.bottom_right, 7, 6, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1)
+
+tCell(int c, int r, string s, color col) =>
+    table.cell(smtTbl, c, r, s, text_color = col, text_size = size.small)
+
+tRow(int r, string nm, bool on, float pH, float h, float pL, float l) =>
+    bool ok = on and not na(pH) and not na(h)
+    tCell(0, r, nm, color.white)
+    tCell(1, r, ok ? fmtP(pH) : "-", color.silver)
+    tCell(2, r, ok ? fmtP(h) : "-", color.silver)
+    tCell(3, r, not on ? "off" : not ok ? "-" : h > pH ? "YES" : "no", ok and h > pH ? smtBearC : color.gray)
+    tCell(4, r, ok ? fmtP(pL) : "-", color.silver)
+    tCell(5, r, ok ? fmtP(l) : "-", color.silver)
+    tCell(6, r, not on ? "off" : not ok ? "-" : l < pL ? "YES" : "no", ok and l < pL ? smtBullC : color.gray)
+
+if barstate.islast and showSMT and showSmtTbl and not na(bId)
+    array<string> hdr = array.from(bc + " quarter", "Prev Q high", "This Q high", "Took high", "Prev Q low", "This Q low", "Took low")
+    for c = 0 to 6
+        tCell(c, 0, hdr.get(c), color.white)
+    tRow(1, syminfo.ticker, true, sm.pAH, sm.aH, sm.pAL, sm.aL)
+    for i = 0 to 2
+        tRow(i + 2, nmArr.get(i) + (i == 0 and inv1 or i == 1 and inv2 or i == 2 and inv3 ? " (inv)" : ""), onArr.get(i), sm.pBH.get(i), sm.bH.get(i), sm.pBL.get(i), sm.bL.get(i))
+    tCell(0, 5, "SMT (needs " + str.tostring(curNeed) + ")", color.white)
+    tCell(3, 5, curBear ? "BEARISH" : "none", curBear ? smtBearC : color.gray)
+    tCell(6, 5, curBull ? "BULLISH" : "none", curBull ? smtBullC : color.gray)
