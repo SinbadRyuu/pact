@@ -88,7 +88,7 @@ showSmtTbl = input.bool(true, "Show SMT check table", group = G_SMT, tooltip = "
 smtRemove = input.bool(true, "Remove an SMT if every symbol ends up agreeing later in the quarter", group = G_SMT)
 
 G_BIAS = "Trend bias (buys or sells)"
-showBias  = input.bool(true, "Show bias panel", group = G_BIAS, tooltip = "Scores three things and shows whether to look for buys or sells:\n1. Price above or below the true open of the next cycle up (e.g. the session true open on 5m)\n2. Price above or below the true open of the cycle above that (e.g. TDO on 5m)\n3. The direction of the latest SMT\nBullish when the score is +2 or more, bearish at -2 or less, otherwise neutral (wait).")
+showBias  = input.bool(true, "Show bias panel", group = G_BIAS, tooltip = "Scores four things (+1 bullish, -1 bearish each) and shows whether to look for buys or sells:\n1. Price above or below the true open of the next cycle up (e.g. the session true open on 5m)\n2. Price above or below the true open of the cycle above that (e.g. TDO on 5m)\n3. Quarter structure: the last finished quarter made a higher high and higher low (or lower high and lower low) than the one before\n4. An SMT from this quarter or the one just finished (older SMTs are ignored)\nBullish at +2 or more, bearish at -2 or less, otherwise neutral (wait).")
 biasBg    = input.bool(false, "Tint chart background by bias", group = G_BIAS)
 biasMarks = input.bool(true, "Mark bias changes on the chart", group = G_BIAS)
 biasBullC = input.color(#4caf50, "Bullish", inline = "bc", group = G_BIAS)
@@ -387,6 +387,7 @@ type Smt
     bool         qBear = false
     bool         qBull = false
     int          dir = 0
+    int          dirAge = 99
     line         lastBearLn
     label        lastBearLb
     line         lastBullLn
@@ -416,8 +417,10 @@ array<string> nmArr = array.from(symName(sym1), symName(sym2), symName(sym3))
 if showSMT and not na(bId)
     if na(sm.cid) or bId != sm.cid or bQ != sm.q
         // New quarter: remember the direction of the SMT the finished quarter ended with
+        sm.dirAge += 1
         if sm.qBear != sm.qBull
-            sm.dir := sm.qBull ? 1 : -1
+            sm.dir    := sm.qBull ? 1 : -1
+            sm.dirAge := 0
         sm.qBear := false
         sm.qBull := false
         // The finished quarter becomes the reference
@@ -603,9 +606,36 @@ sideOf(float px) =>
 
 int s1      = sideOf(p1.toPx)
 int s2      = oneTO ? 0 : sideOf(p2.toPx)
-int smtLive = curBull and not curBear ? 1 : curBear and not curBull ? -1 : sm.dir
-int s3      = showSMT ? smtLive : 0
-int score   = s1 + s2 + s3
+// Quarter structure: the last two finished quarters of the chart's cycle
+var float stH  = na
+var float stL  = na
+var float stPH = na
+var float stPL = na
+var float stPPH = na
+var float stPPL = na
+var int   stId = na
+var int   stQ  = na
+if not na(bId)
+    if na(stId) or bId != stId or bQ != stQ
+        stPPH := stPH
+        stPPL := stPL
+        stPH  := stH
+        stPL  := stL
+        stH   := high
+        stL   := low
+    else
+        stH := math.max(stH, high)
+        stL := math.min(stL, low)
+    stId := bId
+    stQ  := bQ
+int s4 = na(stPPH) ? 0 : stPH < stPPH and stPL < stPPL ? -1 : stPH > stPPH and stPL > stPPL ? 1 : 0
+
+// SMT only counts while it is fresh: formed in this quarter or the one just finished
+bool smtNow   = curBull != curBear
+bool smtFresh = smtNow or sm.dirAge == 0
+int  smtDir   = smtNow ? (curBull ? 1 : -1) : sm.dir
+int  s3       = showSMT and smtFresh ? smtDir : 0
+int  score    = s1 + s2 + s3 + s4
 int bias    = score >= 2 ? 1 : score <= -2 ? -1 : 0
 
 bgcolor(showBias and biasBg ? (bias == 1 ? color.new(biasBullC, 92) : bias == -1 ? color.new(biasBearC, 92) : na) : na)
@@ -617,7 +647,7 @@ if showBias and biasMarks and biasChanged and bias != 0 and bDraw
 alertcondition(biasChanged and bias == 1, "Bias turned bullish", "Quarterly Theory bias turned BULLISH on {{ticker}}: look for buys")
 alertcondition(biasChanged and bias == -1, "Bias turned bearish", "Quarterly Theory bias turned BEARISH on {{ticker}}: look for sells")
 
-var table biasTbl = table.new(position.top_right, 2, 5, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1)
+var table biasTbl = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1)
 
 sideTxt(int sd) =>
     sd == 1 ? "price above" : sd == -1 ? "price below" : "not set yet"
@@ -632,7 +662,10 @@ if barstate.islast and showBias
     table.cell(biasTbl, 1, 1, sideTxt(s1), text_color = sideCol(s1), text_size = size.small)
     table.cell(biasTbl, 0, 2, oneTO ? "-" : (na(p2.toNm) ? p2Fallback : p2.toNm) + " " + fmtP(p2.toPx), text_color = color.silver, text_size = size.small)
     table.cell(biasTbl, 1, 2, oneTO ? "-" : sideTxt(s2), text_color = sideCol(s2), text_size = size.small)
-    table.cell(biasTbl, 0, 3, "Latest SMT", text_color = color.silver, text_size = size.small)
-    table.cell(biasTbl, 1, 3, not showSMT ? "off" : s3 == 1 ? "bullish" : s3 == -1 ? "bearish" : "none", text_color = sideCol(s3), text_size = size.small)
-    table.cell(biasTbl, 0, 4, "Score", text_color = color.silver, text_size = size.small)
-    table.cell(biasTbl, 1, 4, (score > 0 ? "+" : "") + str.tostring(score) + " (needs +/-2)", text_color = bCol, text_size = size.small)
+    table.cell(biasTbl, 0, 3, "Quarter structure", text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 3, s4 == 1 ? "higher highs + lows" : s4 == -1 ? "lower highs + lows" : "mixed", text_color = sideCol(s4), text_size = size.small)
+    string smtTxt = not showSMT ? "off" : smtDir == 0 ? "none" : (smtDir == 1 ? "bullish" : "bearish") + (smtFresh ? "" : " (old, ignored)")
+    table.cell(biasTbl, 0, 4, "Latest SMT", text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 4, smtTxt, text_color = sideCol(s3), text_size = size.small)
+    table.cell(biasTbl, 0, 5, "Score", text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 5, (score > 0 ? "+" : "") + str.tostring(score) + " of 4 (needs +/-2)", text_color = bCol, text_size = size.small)
