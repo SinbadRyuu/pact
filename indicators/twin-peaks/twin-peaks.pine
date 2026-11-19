@@ -1,0 +1,640 @@
+// PACT | Twin Peaks — double top and double bottom reversal patterns.
+//
+// How it works, in order, on every closed bar:
+//   1. Swings. A swing high is a high the `left` bars before it did not reach and the `right` bars
+//      after it did not beat. It is only known `right` bars later, and is treated that way.
+//   2. Candidates. When a new swing forms, the script looks back for an earlier swing at about the
+//      same price (within the tolerance), far enough away in time, with a real dip (or rally)
+//      between them and, optionally, a prior trend into the first one. The neckline is the furthest
+//      point price reached between the two.
+//   3. States. A pattern is DEVELOPING until price closes beyond the neckline (CONFIRMED, with a
+//      BUY or SELL), closes beyond the peaks (INVALIDATED), or takes too long (EXPIRED). After a
+//      breakout it watches for a RETEST of the neckline and for the stop or target being reached.
+//
+// Every decision uses closed bars only. Signals are printed on the bar where the breakout became
+// known and never move afterwards. Developing patterns are provisional and are labelled that way.
+//
+// Stops and targets are reference levels worked out from the pattern. They are not predictions, and
+// nothing here is financial advice.
+//
+// Reference model and tests: twin-peaks.js / twin-peaks.test.js (same rules, kept in step).
+
+//@version=6
+indicator("PACT | Twin Peaks", "Twin Peaks", overlay = true, max_lines_count = 500, max_labels_count = 500, max_boxes_count = 100, max_bars_back = 600)
+
+// ───────────────────────────── Inputs ─────────────────────────────
+
+grpM = "Signals"
+mode = input.string("Combined", "Signal mode", options = ["Combined", "Early warning", "Breakout", "Breakout + retest"], group = grpM, tooltip = "Combined: developing patterns, BUY/SELL on the breakout and a RETEST mark.\nEarly warning: developing patterns and their alerts; breakouts are marked but not given as signals.\nBreakout: only confirmed patterns, with BUY/SELL on the breakout.\nBreakout + retest: BUY/SELL only when a breakout is followed by a retest of the neckline.")
+
+grpD = "Detection"
+swingLeft    = input.int(6, "Swing strength (bars to the left)", minval = 2, maxval = 50, group = grpD, tooltip = "How many bars before a peak it must be higher than. Larger values find bigger, fewer swings.")
+swingRight   = input.int(3, "Swing confirmation (bars to the right)", minval = 1, maxval = 20, group = grpD, tooltip = "How many bars after a peak must stay below it before it counts. This is the detection delay: a developing pattern appears this many bars after its second peak.")
+tolMode      = input.string("ATR", "Peak tolerance measured in", options = ["ATR", "Percent"], group = grpD)
+tolAtr       = input.float(0.6, "Peak tolerance (× ATR)", minval = 0.05, maxval = 5, step = 0.05, group = grpD, tooltip = "How far apart the two peaks (or bottoms) may be. Also the buffer beyond them that invalidates a developing pattern.")
+tolPct       = input.float(0.5, "Peak tolerance (%)", minval = 0.01, maxval = 10, step = 0.05, group = grpD)
+minHeightAtr = input.float(2.0, "Minimum pattern height (× ATR)", minval = 0.5, maxval = 20, step = 0.1, group = grpD, tooltip = "Distance from the higher peak to the neckline (or the lower bottom to the neckline). Filters out small wiggles.")
+minSep       = input.int(8, "Minimum bars between peaks", minval = 3, maxval = 200, group = grpD)
+maxSep       = input.int(120, "Maximum bars between peaks", minval = 10, maxval = 300, group = grpD)
+atrLen       = input.int(14, "ATR length", minval = 5, maxval = 100, group = grpD)
+
+grpF = "Filters"
+trendFilter   = input.bool(true, "Require a prior trend into the first peak", group = grpF, tooltip = "A double top should follow a rise and a double bottom a fall. Off: any shape that passes the other rules counts.")
+trendLookback = input.int(60, "Trend lookback (bars)", minval = 10, maxval = 200, group = grpF)
+trendMinMove  = input.float(1.0, "Prior move (× pattern height)", minval = 0.1, maxval = 10, step = 0.1, group = grpF, tooltip = "The move into the first peak, measured over the lookback, must be at least this many times the pattern height.")
+volFilter     = input.bool(false, "Breakout volume above average", group = grpF, tooltip = "Ignored automatically on symbols without volume data.")
+volLen        = input.int(20, "Volume average length", minval = 2, maxval = 200, group = grpF)
+volMult       = input.float(1.2, "Volume multiple", minval = 0.5, maxval = 5, step = 0.1, group = grpF)
+bodyFilter    = input.bool(false, "Strong breakout candle", group = grpF)
+bodyMin       = input.float(0.5, "Minimum body (share of the candle's range)", minval = 0.1, maxval = 1, step = 0.05, group = grpF)
+
+grpC = "Confirmation"
+breakAtr   = input.float(0.1, "Close beyond the neckline by (× ATR)", minval = 0, maxval = 3, step = 0.05, group = grpC)
+lateAtr    = input.float(2.5, "No signal if the first close is beyond by more than (× ATR)", minval = 0.5, maxval = 10, step = 0.1, group = grpC, tooltip = "A breakout candle that has already run this far is marked as a break but not given as a signal.")
+expiryMult = input.float(1.0, "Expire after (× pattern width)", minval = 0.2, maxval = 5, step = 0.1, group = grpC, tooltip = "Bars after the second peak, as a multiple of the bars between the peaks.")
+expiryMin  = input.int(15, "…but never sooner than (bars)", minval = 1, maxval = 200, group = grpC)
+retestBars = input.int(20, "Retest window (bars after the breakout)", minval = 1, maxval = 200, group = grpC)
+retestAtr  = input.float(0.3, "Retest: within this of the neckline (× ATR)", minval = 0, maxval = 3, step = 0.05, group = grpC)
+
+grpR = "Risk levels"
+riskShow  = input.string("Latest signal", "Show entry, stop and targets", options = ["Latest signal", "All signals", "Off"], group = grpR)
+stopAtr   = input.float(0.25, "Stop buffer beyond the pattern (× ATR)", minval = 0, maxval = 5, step = 0.05, group = grpR)
+showMM    = input.bool(true, "Measured-move target", group = grpR, tooltip = "The pattern height projected from the neckline.")
+showRR    = input.bool(false, "R-multiple targets", group = grpR)
+rrA       = input.float(1.0, "R target 1", minval = 0, maxval = 20, step = 0.25, group = grpR, inline = "rr")
+rrB       = input.float(2.0, "2", minval = 0, maxval = 20, step = 0.25, group = grpR, inline = "rr")
+rrC       = input.float(3.0, "3", minval = 0, maxval = 20, step = 0.25, group = grpR, inline = "rr", tooltip = "Set any of them to 0 to hide it.")
+trackBars = input.int(150, "Follow a signal for up to (bars)", minval = 10, maxval = 500, group = grpR)
+
+grpA = "Appearance"
+bearCol    = input.color(#FF2D75, "Double top", group = grpA, inline = "col")
+bullCol    = input.color(#00E5C3, "Double bottom", group = grpA, inline = "col")
+stopCol    = input.color(#FF5A5A, "Stop", group = grpA, inline = "col2")
+dimCol     = input.color(#6B7280, "Invalid / expired", group = grpA, inline = "col2")
+panelBg    = input.color(#0B0F17, "Label and panel background", group = grpA)
+lineW      = input.int(2, "Line width", minval = 1, maxval = 5, group = grpA)
+lblSizeIn  = input.string("Small", "Label size", options = ["Tiny", "Small", "Normal"], group = grpA)
+shadeZone  = input.bool(true, "Shade the pattern", group = grpA)
+zoneTransp = input.int(90, "Shading transparency", minval = 50, maxval = 100, group = grpA)
+showDots   = input.bool(true, "Mark the two peaks / bottoms", group = grpA)
+oldStyle   = input.string("Dim", "Invalidated and expired patterns", options = ["Dim", "Delete"], group = grpA)
+showTable  = input.bool(true, "Status panel", group = grpA)
+tablePosIn = input.string("Top right", "Panel position", options = ["Top right", "Bottom right", "Top left", "Bottom left"], group = grpA)
+
+grpP = "Performance"
+maxKeep = input.int(20, "Finished patterns kept on the chart", minval = 1, maxval = 50, group = grpP)
+
+grpL = "Alerts (for an 'Any alert() function call' alert)"
+alPot  = input.bool(true, "Potential (developing) patterns", group = grpL)
+alConf = input.bool(true, "Confirmed breakouts", group = grpL)
+alRet  = input.bool(true, "Retests", group = grpL)
+alInv  = input.bool(true, "Invalidated or expired patterns", group = grpL)
+
+// ───────────────────────────── Derived settings ─────────────────────────────
+
+bool showDev       = mode == "Combined" or mode == "Early warning"
+bool breakIsSignal = mode == "Combined" or mode == "Breakout"
+bool retestSignal  = mode == "Breakout + retest"
+bool markRetest    = mode == "Combined" or retestSignal
+bool wantPot       = alPot and showDev
+bool wantConf      = alConf and mode != "Early warning" and mode != "Breakout + retest"
+bool wantRet       = alRet and markRetest
+bool wantInv       = alInv and showDev
+lblSize = lblSizeIn == "Tiny" ? size.tiny : lblSizeIn == "Small" ? size.small : size.normal
+tagSize = lblSizeIn == "Normal" ? size.small : size.tiny
+
+// ───────────────────────────── Core series ─────────────────────────────
+
+atrV   = ta.atr(atrLen)
+volAvg = ta.sma(volume, volLen)
+var bool hasVolume = false
+if nz(volume) > 0
+    hasVolume := true
+
+fmt(float v) => str.tostring(v, format.mintick)
+fmt2(float v) => str.tostring(v, "#.##")
+
+// ───────────────────────────── Pattern object ─────────────────────────────
+
+type Pattern
+    int    id
+    int    dir                    // -1 double top (bearish), +1 double bottom (bullish)
+    string state = "developing"   // developing, confirmed, target, stopped, ended, invalidated, expired, late, superseded
+    int    b1
+    float  p1
+    int    b2
+    float  p2
+    int    nb
+    float  neck
+    float  ext                    // the higher peak (top) or lower bottom (bottom)
+    float  height
+    float  prior
+    float  tolUsed
+    float  atrRef
+    int    detectBar
+    int    breakBar
+    int    endBar
+    float  entry
+    float  stop
+    float  target
+    float  risk
+    float  volRatio
+    bool   retested = false
+    bool   drawn = false
+    line   legA
+    line   legB
+    line   legC
+    line   neckLn
+    box    zone
+    label  dot1
+    label  dot2
+    label  tag
+    label  sig
+    label  rt
+    array<line>  riskLns
+    array<label> riskLbls
+
+method kind(Pattern p) => p.dir == -1 ? "DOUBLE TOP" : "DOUBLE BOTTOM"
+method base(Pattern p) => p.dir == -1 ? bearCol : bullCol
+
+// ───────────────────────────── Swing detection ─────────────────────────────
+
+// True when the bar `swingRight` bars ago is a swing high (isHigh) or swing low.
+isPivot(bool isHigh) =>
+    bool ok = bar_index >= swingLeft + swingRight
+    if ok
+        float v = isHigh ? high[swingRight] : low[swingRight]
+        for k = 1 to swingLeft
+            float w = isHigh ? high[swingRight + k] : low[swingRight + k]
+            if isHigh ? w >= v : w <= v
+                ok := false
+                break
+        if ok
+            for k = 1 to swingRight
+                float w = isHigh ? high[swingRight - k] : low[swingRight - k]
+                if isHigh ? w > v : w < v
+                    ok := false
+                    break
+    ok
+
+// Looks for an earlier swing that pairs with the new one (price p2 at bar b2).
+// dir: -1 double top, +1 double bottom.
+findCandidate(array<float> ps, array<int> bs, float p2, int b2, float a, int dir) =>
+    Pattern res = na
+    float tol = tolMode == "ATR" ? tolAtr * a : tolPct / 100 * p2
+    int n = ps.size()
+    if n > 0
+        for j = n - 1 to 0 by -1
+            float p1 = ps.get(j)
+            int b1 = bs.get(j)
+            int sep = b2 - b1
+            if sep > maxSep
+                break
+            if sep >= minSep
+                // An earlier swing beyond the new one by more than the tolerance blocks everything older.
+                if dir * (p2 - p1) > tol
+                    break
+                if math.abs(p2 - p1) <= tol
+                    float ext = dir == -1 ? math.max(p1, p2) : math.min(p1, p2)
+                    float neck = na
+                    int nb = na
+                    bool blocked = false
+                    for b = b1 + 1 to b2 - 1
+                        int off = bar_index - b
+                        float lo = low[off]
+                        float hi = high[off]
+                        if dir == -1
+                            if na(neck) or lo < neck
+                                neck := lo
+                                nb := b
+                            if hi > ext
+                                blocked := true
+                        else
+                            if na(neck) or hi > neck
+                                neck := hi
+                                nb := b
+                            if lo < ext
+                                blocked := true
+                    if blocked
+                        break
+                    float height = math.abs(ext - neck)
+                    if height >= minHeightAtr * a
+                        bool trendOk = true
+                        float prior = na
+                        if trendFilter
+                            int startB = math.max(0, b1 - trendLookback)
+                            if b1 - startB < 5
+                                trendOk := false
+                            else
+                                float origin = na
+                                for b = startB to b1 - 1
+                                    int off = bar_index - b
+                                    float v = dir == -1 ? low[off] : high[off]
+                                    if na(origin) or (dir == -1 ? v < origin : v > origin)
+                                        origin := v
+                                prior := math.abs(p1 - origin)
+                                if (dir == -1 ? origin >= p1 : origin <= p1) or prior < trendMinMove * height
+                                    trendOk := false
+                        if trendOk
+                            res := Pattern.new(dir = dir, b1 = b1, p1 = p1, b2 = b2, p2 = p2, nb = nb, neck = neck, ext = ext, height = height, prior = prior, tolUsed = tol, atrRef = a, detectBar = bar_index)
+                            break
+    res
+
+passesFilters(int s) =>
+    bool ok = true
+    if bodyFilter
+        float rng = high - low
+        float body = s * (close - open)
+        if rng <= 0 or body / rng < bodyMin
+            ok := false
+    if volFilter and hasVolume and nz(volAvg) > 0 and nz(volume) < volMult * volAvg
+        ok := false
+    ok
+
+// ───────────────────────────── Drawing ─────────────────────────────
+
+method why(Pattern p) =>
+    string w = p.dir == -1 ? "peak" : "bottom"
+    string t = p.kind() + " — why it qualifies"
+    t += "\nFirst " + w + ": " + fmt(p.p1)
+    t += "\nSecond " + w + ": " + fmt(p.p2)
+    t += "\nDifference: " + fmt2(math.abs(p.p1 - p.p2) / p.atrRef) + " ATR (allowed " + fmt2(p.tolUsed / p.atrRef) + ")"
+    t += "\nHeight to neckline: " + fmt2(p.height / p.atrRef) + " ATR (min " + fmt2(minHeightAtr) + ")"
+    t += "\nBars between " + w + "s: " + str.tostring(p.b2 - p.b1)
+    if not na(p.prior)
+        t += "\nPrior " + (p.dir == -1 ? "rise" : "fall") + " into the first " + w + ": " + fmt2(p.prior / p.height) + "× the height"
+    t += "\nNeckline: " + fmt(p.neck)
+    t += "\nDetected " + str.tostring(swingRight) + " bars after the second " + w + " (swing confirmation)."
+    t
+
+method stateText(Pattern p) =>
+    switch p.state
+        "developing"  => "DEVELOPING"
+        "confirmed"   => "CONFIRMED"
+        "ended"       => "CONFIRMED"
+        "target"      => "TARGET REACHED"
+        "stopped"     => "STOPPED OUT"
+        "invalidated" => "INVALIDATED"
+        "expired"     => "EXPIRED"
+        "late"        => "BROKE TOO FAR · NO SIGNAL"
+        => str.upper(p.state)
+
+method draw(Pattern p) =>
+    if not p.drawn
+        p.drawn := true
+        color c = p.base()
+        p.legA := line.new(p.b1, p.p1, p.nb, p.neck, color = c, width = lineW)
+        p.legB := line.new(p.nb, p.neck, p.b2, p.p2, color = c, width = lineW)
+        p.legC := line.new(p.b2, p.p2, bar_index, p.neck, color = c, width = lineW)
+        p.neckLn := line.new(p.b1, p.neck, bar_index, p.neck, color = c, width = 1)
+        if shadeZone
+            p.zone := box.new(p.b1, math.max(p.ext, p.neck), p.b2, math.min(p.ext, p.neck), border_color = color(na), bgcolor = color.new(c, zoneTransp))
+        if showDots
+            string w = p.dir == -1 ? "peak" : "bottom"
+            p.dot1 := label.new(p.b1, p.p1, "", style = label.style_circle, size = size.tiny, color = c, tooltip = "First " + w + ": " + fmt(p.p1))
+            p.dot2 := label.new(p.b2, p.p2, "", style = label.style_circle, size = size.tiny, color = c, tooltip = "Second " + w + ": " + fmt(p.p2))
+        p.tag := label.new(bar_index, p.neck, "", style = label.style_label_left, size = tagSize, color = color.new(panelBg, 10), textcolor = c, text_font_family = font.family_monospace, tooltip = p.why())
+    p
+
+// Colours, line styles and the status text for the pattern's current state.
+method paint(Pattern p) =>
+    if p.drawn
+        bool live = p.state == "developing"
+        bool dead = p.state == "invalidated" or p.state == "expired"
+        bool late = p.state == "late"
+        color c = dead ? color.new(dimCol, 40) : live ? color.new(p.base(), 30) : late ? color.new(p.base(), 50) : p.base()
+        string st = live ? line.style_dotted : dead ? line.style_dashed : line.style_solid
+        for ln in array.from(p.legA, p.legB, p.legC)
+            line.set_color(ln, c)
+            line.set_style(ln, st)
+        line.set_color(p.neckLn, c)
+        line.set_style(p.neckLn, live ? line.style_dotted : line.style_dashed)
+        line.set_width(p.neckLn, live or dead ? 1 : 2)
+        if dead
+            // A path to the neckline that never happened would mislead.
+            line.delete(p.legC)
+            line.set_x2(p.neckLn, p.endBar)
+        if not na(p.zone)
+            box.set_bgcolor(p.zone, color.new(dead ? dimCol : p.base(), dead ? math.min(97, zoneTransp + 5) : live ? math.min(97, zoneTransp + 3) : zoneTransp))
+        for d in array.from(p.dot1, p.dot2)
+            if not na(d)
+                label.set_color(d, c)
+        string txt = p.kind() + " · " + p.stateText()
+        if live
+            txt += "\nneckline " + fmt(p.neck)
+        label.set_text(p.tag, txt)
+        label.set_textcolor(p.tag, dead ? dimCol : p.base())
+        label.set_color(p.tag, color.new(panelBg, dead ? 40 : 10))
+    p
+
+method clearRisk(Pattern p) =>
+    if not na(p.riskLns)
+        for ln in p.riskLns
+            line.delete(ln)
+        p.riskLns.clear()
+    if not na(p.riskLbls)
+        for lb in p.riskLbls
+            label.delete(lb)
+        p.riskLbls.clear()
+    p
+
+method erase(Pattern p) =>
+    for ln in array.from(p.legA, p.legB, p.legC, p.neckLn)
+        if not na(ln)
+            line.delete(ln)
+    if not na(p.zone)
+        box.delete(p.zone)
+    for lb in array.from(p.dot1, p.dot2, p.tag, p.sig, p.rt)
+        if not na(lb)
+            label.delete(lb)
+    p.clearRisk()
+    p.drawn := false
+    p
+
+method addLevel(Pattern p, float price, string name, color c, string st) =>
+    p.riskLns.push(line.new(p.breakBar, price, bar_index, price, color = c, style = st, width = 1))
+    p.riskLbls.push(label.new(bar_index, price, name + " " + fmt(price), style = label.style_label_left, size = size.tiny, color = color.new(panelBg, 20), textcolor = c, text_font_family = font.family_monospace))
+    p
+
+method drawRisk(Pattern p) =>
+    p.riskLns := array.new<line>()
+    p.riskLbls := array.new<label>()
+    color c = p.base()
+    p.addLevel(p.entry, "ENTRY", color.new(chart.fg_color, 30), line.style_dotted)
+    p.addLevel(p.stop, "STOP", stopCol, line.style_dashed)
+    if showMM
+        p.addLevel(p.target, "TARGET", c, line.style_dashed)
+    if showRR
+        for r in array.from(rrA, rrB, rrC)
+            if r > 0
+                p.addLevel(p.entry + p.dir * r * p.risk, str.tostring(r) + "R", color.new(c, 40), line.style_dotted)
+    p
+
+method extendRisk(Pattern p, int x) =>
+    if not na(p.riskLns)
+        for ln in p.riskLns
+            line.set_x2(ln, x)
+        for lb in p.riskLbls
+            label.set_x(lb, x)
+    p
+
+method signalTip(Pattern p, string head, float entry) =>
+    float risk = p.dir * (entry - p.stop)
+    string t = head
+    t += "\nEntry reference (close): " + fmt(entry)
+    t += "\nStop reference: " + fmt(p.stop) + " (beyond the " + (p.dir == -1 ? "highest peak" : "lowest bottom") + " + " + fmt2(stopAtr) + " ATR)"
+    t += "\nMeasured-move target: " + fmt(p.target)
+    if risk > 0
+        t += "\nReward to target: " + fmt2(p.dir * (p.target - entry) / risk) + "R"
+    t += "\nVolume: " + (na(p.volRatio) ? "no data" : fmt2(p.volRatio) + "× average")
+    t += "\nReference levels from the pattern, not predictions."
+    t
+
+// ───────────────────────────── State ─────────────────────────────
+
+var array<float>   hiP     = array.new<float>()
+var array<int>     hiB     = array.new<int>()
+var array<float>   loP     = array.new<float>()
+var array<int>     loB     = array.new<int>()
+var array<Pattern> act     = array.new<Pattern>(2)   // developing pattern per direction: 0 top, 1 bottom
+var array<Pattern> tracked = array.new<Pattern>()    // confirmed, still being followed
+var array<Pattern> pastPats = array.new<Pattern>()   // finished, kept on the chart
+var Pattern lastTop = na
+var Pattern lastBot = na
+var Pattern lastSig = na
+var int nextId = 0
+
+// Events on this bar, for alertcondition() and the hidden "Alert level" plot.
+bool  evPotTop  = false
+bool  evPotBot  = false
+bool  evConfTop = false
+bool  evConfBot = false
+bool  evRetTop  = false
+bool  evRetBot  = false
+bool  evInv     = false
+float evLevel   = na
+
+alertText(Pattern p, string stage) =>
+    string t = "PACT Twin Peaks | " + syminfo.ticker + " " + timeframe.period + " | " + p.kind() + " | " + stage
+    t += " | neckline " + fmt(p.neck) + " | close " + fmt(close)
+    if stage == "CONFIRMED" or stage == "RETEST"
+        t += " | stop " + fmt(p.stop) + " | target " + fmt(p.target)
+    t
+
+// Puts a finished pattern into history (or deletes it) and trims history to the limit.
+finish(Pattern p) =>
+    p.paint()
+    if (p.state == "invalidated" or p.state == "expired") and oldStyle == "Delete"
+        p.erase()
+    else if p.drawn
+        pastPats.push(p)
+        if riskShow == "Latest signal" and not na(lastSig) and lastSig.id != p.id
+            p.clearRisk()
+        while pastPats.size() > maxKeep
+            pastPats.shift().erase()
+    p
+
+// ───────────────────────────── Engine (closed bars only) ─────────────────────────────
+
+if barstate.isconfirmed
+    float a = atrV
+
+    // 1. New swings, known `swingRight` bars after they happen.
+    for d = 0 to 1
+        int dir = d == 0 ? -1 : 1
+        if isPivot(dir == -1)
+            int pb = bar_index - swingRight
+            float price = dir == -1 ? high[swingRight] : low[swingRight]
+            array<float> ps = dir == -1 ? hiP : loP
+            array<int> bs = dir == -1 ? hiB : loB
+            Pattern pat = na
+            if not na(a)
+                pat := findCandidate(ps, bs, price, pb, a, dir)
+            ps.push(price)
+            bs.push(pb)
+            if ps.size() > 12
+                ps.shift()
+                bs.shift()
+            if not na(pat)
+                Pattern old = act.get(d)
+                if not na(old)
+                    // A newer pair replaces a still-developing one; it was provisional, so it goes.
+                    old.state := "superseded"
+                    old.erase()
+                nextId += 1
+                pat.id := nextId
+                act.set(d, pat)
+                if dir == -1
+                    lastTop := pat
+                    evPotTop := true
+                else
+                    lastBot := pat
+                    evPotBot := true
+                evLevel := pat.neck
+                if showDev
+                    pat.draw()
+                    pat.paint()
+                if wantPot
+                    alert(alertText(pat, "POTENTIAL (developing)"), alert.freq_once_per_bar_close)
+
+    // 2. Developing patterns: confirm, invalidate or expire.
+    if not na(a)
+        for d = 0 to 1
+            Pattern p = act.get(d)
+            if not na(p)
+                int s = p.dir
+                float tol = tolMode == "ATR" ? tolAtr * a : tolPct / 100 * p.ext
+                float beyond = s * (close - p.neck)
+                if s * (p.ext - close) > tol
+                    p.state := "invalidated"
+                    p.endBar := bar_index
+                    act.set(d, na)
+                    finish(p)
+                    evInv := true
+                    evLevel := close
+                    if wantInv
+                        alert(alertText(p, "INVALIDATED (closed beyond the " + (s == -1 ? "peaks" : "bottoms") + ")"), alert.freq_once_per_bar_close)
+                else if beyond >= breakAtr * a and passesFilters(s)
+                    act.set(d, na)
+                    p.breakBar := bar_index
+                    p.endBar := bar_index
+                    if beyond > lateAtr * a
+                        p.state := "late"
+                        if showDev
+                            p.draw()
+                            line.set_xy2(p.legC, bar_index, close)
+                            line.set_x2(p.neckLn, bar_index)
+                            label.set_xy(p.tag, bar_index, p.neck)
+                        finish(p)
+                    else
+                        p.state := "confirmed"
+                        p.entry := close
+                        p.stop := p.ext - s * stopAtr * a
+                        p.risk := s * (p.entry - p.stop)
+                        p.target := p.neck + s * p.height
+                        p.volRatio := hasVolume and nz(volAvg) > 0 ? volume / volAvg : na
+                        tracked.push(p)
+                        p.draw()
+                        line.set_xy2(p.legC, bar_index, close)
+                        line.set_x2(p.neckLn, bar_index)
+                        label.set_xy(p.tag, bar_index, p.neck)
+                        p.paint()
+                        string head = (s == -1 ? "SELL" : "BUY") + " — " + str.lower(p.kind()) + " confirmed: closed " + (s == -1 ? "below" : "above") + " the neckline " + fmt(p.neck)
+                        if breakIsSignal
+                            p.sig := label.new(bar_index, s == -1 ? high : low, s == -1 ? "SELL" : "BUY", style = s == -1 ? label.style_label_down : label.style_label_up, size = lblSize, color = p.base(), textcolor = panelBg, text_font_family = font.family_monospace, tooltip = p.signalTip(head, close))
+                        else
+                            p.sig := label.new(bar_index, s == -1 ? high : low, "BREAK", style = s == -1 ? label.style_label_down : label.style_label_up, size = size.tiny, color = color.new(p.base(), 60), textcolor = chart.fg_color, text_font_family = font.family_monospace, tooltip = "Neckline break — " + str.lower(p.kind()) + " confirmed." + (retestSignal ? " Waiting for a retest of the neckline." : ""))
+                        if riskShow != "Off"
+                            if riskShow == "Latest signal" and not na(lastSig)
+                                lastSig.clearRisk()
+                            p.drawRisk()
+                        lastSig := p
+                        if s == -1
+                            evConfTop := true
+                        else
+                            evConfBot := true
+                        evLevel := p.neck
+                        if wantConf
+                            alert(alertText(p, "CONFIRMED"), alert.freq_once_per_bar_close)
+                else if bar_index - p.b2 > math.max(expiryMin, math.round(expiryMult * (p.b2 - p.b1)))
+                    p.state := "expired"
+                    p.endBar := bar_index
+                    act.set(d, na)
+                    finish(p)
+                    evInv := true
+                    evLevel := p.neck
+                    if wantInv
+                        alert(alertText(p, "EXPIRED (no breakout in time)"), alert.freq_once_per_bar_close)
+                else if p.drawn
+                    // Still developing: carry the neckline and the path to it forward.
+                    line.set_xy2(p.legC, bar_index, p.neck)
+                    line.set_x2(p.neckLn, bar_index)
+                    label.set_xy(p.tag, bar_index, p.neck)
+
+    // 3. Confirmed patterns: retest, then stop or target.
+    if not na(a) and tracked.size() > 0
+        for k = tracked.size() - 1 to 0 by -1
+            Pattern p = tracked.get(k)
+            if p.breakBar != bar_index
+                int s = p.dir
+                float adverse = s > 0 ? low : high
+                float favour = s > 0 ? high : low
+                string done = ""
+                if s * (p.stop - adverse) >= 0
+                    done := "stopped"
+                else if s * (favour - p.target) >= 0
+                    done := "target"
+                if done == "" and not p.retested and bar_index - p.breakBar <= retestBars
+                    bool touched = s * (adverse - p.neck) <= retestAtr * a
+                    bool held = s * (close - p.neck) > 0
+                    if touched and held
+                        p.retested := true
+                        if markRetest
+                            string head = (s == -1 ? "SELL" : "BUY") + " — retest: price came back to the neckline " + fmt(p.neck) + " and closed " + (s == -1 ? "below" : "above") + " it"
+                            bool isMain = retestSignal
+                            p.rt := label.new(bar_index, s == -1 ? high : low, isMain ? (s == -1 ? "SELL" : "BUY") : "RETEST", style = s == -1 ? label.style_label_down : label.style_label_up, size = isMain ? lblSize : size.tiny, color = isMain ? p.base() : color.new(p.base(), 55), textcolor = isMain ? panelBg : chart.fg_color, text_font_family = font.family_monospace, tooltip = p.signalTip(head, close))
+                        if s == -1
+                            evRetTop := true
+                        else
+                            evRetBot := true
+                        evLevel := p.neck
+                        if wantRet
+                            alert(alertText(p, "RETEST"), alert.freq_once_per_bar_close)
+                if done == "" and bar_index - p.breakBar >= trackBars
+                    done := "ended"
+                p.extendRisk(bar_index)
+                if done != ""
+                    p.state := done
+                    p.endBar := bar_index
+                    tracked.remove(k)
+                    finish(p)
+
+// ───────────────────────────── Status panel ─────────────────────────────
+
+tablePos = switch tablePosIn
+    "Top right"    => position.top_right
+    "Bottom right" => position.bottom_right
+    "Top left"     => position.top_left
+    => position.bottom_left
+
+var table panel = table.new(tablePos, 3, 3, bgcolor = color.new(panelBg, 8), border_color = color.new(#1F2937, 0), border_width = 1, frame_color = color.new(#1F2937, 0), frame_width = 1)
+
+panelRow(int row, string name, Pattern p, color c) =>
+    string st = "SCANNING"
+    string lvl = "—"
+    color sc = color.new(#9CA3AF, 0)
+    if not na(p)
+        st := p.stateText()
+        if p.state == "developing"
+            lvl := "neck " + fmt(p.neck)
+            sc := color.new(c, 25)
+        else if p.state == "confirmed"
+            st := (p.dir == -1 ? "SELL" : "BUY") + " · LIVE" + (p.retested ? " · RETESTED" : "")
+            lvl := "SL " + fmt(p.stop) + "  TP " + fmt(p.target)
+            sc := c
+        else
+            st += " · " + str.tostring(bar_index - p.endBar) + " BARS AGO"
+            lvl := "neck " + fmt(p.neck)
+            sc := color.new(#9CA3AF, 0)
+    table.cell(panel, 0, row, name, text_color = c, text_size = size.small, text_halign = text.align_left, text_font_family = font.family_monospace)
+    table.cell(panel, 1, row, st, text_color = sc, text_size = size.small, text_halign = text.align_left, text_font_family = font.family_monospace)
+    table.cell(panel, 2, row, lvl, text_color = color.new(#E5E7EB, 0), text_size = size.small, text_halign = text.align_right, text_font_family = font.family_monospace)
+
+if showTable and barstate.islast
+    table.cell(panel, 0, 0, "TWIN PEAKS", text_color = color.new(#E5E7EB, 0), text_size = size.small, text_halign = text.align_left, text_font_family = font.family_monospace)
+    table.cell(panel, 1, 0, mode == "Breakout + retest" ? "MODE · RETEST" : "MODE · " + str.upper(mode), text_color = color.new(#9CA3AF, 0), text_size = size.tiny, text_halign = text.align_left, text_font_family = font.family_monospace)
+    table.cell(panel, 2, 0, "ATR " + fmt(atrV), text_color = color.new(#9CA3AF, 0), text_size = size.tiny, text_halign = text.align_right, text_font_family = font.family_monospace)
+    panelRow(1, "DOUBLE TOP", lastTop, bearCol)
+    panelRow(2, "DOUBLE BOTTOM", lastBot, bullCol)
+
+// ───────────────────────────── Alerts ─────────────────────────────
+
+plot(evLevel, "Alert level", display = display.none)
+
+alertcondition(evPotTop, "Potential double top", 'PACT Twin Peaks: potential DOUBLE TOP developing on {{ticker}} {{interval}}. Neckline {{plot("Alert level")}}.')
+alertcondition(evPotBot, "Potential double bottom", 'PACT Twin Peaks: potential DOUBLE BOTTOM developing on {{ticker}} {{interval}}. Neckline {{plot("Alert level")}}.')
+alertcondition(evConfTop, "Double top confirmed (SELL)", 'PACT Twin Peaks: DOUBLE TOP confirmed on {{ticker}} {{interval}}. Closed below the neckline {{plot("Alert level")}} at {{close}}.')
+alertcondition(evConfBot, "Double bottom confirmed (BUY)", 'PACT Twin Peaks: DOUBLE BOTTOM confirmed on {{ticker}} {{interval}}. Closed above the neckline {{plot("Alert level")}} at {{close}}.')
+alertcondition(evRetTop, "Bearish retest", 'PACT Twin Peaks: bearish RETEST of the neckline {{plot("Alert level")}} on {{ticker}} {{interval}}, close {{close}}.')
+alertcondition(evRetBot, "Bullish retest", 'PACT Twin Peaks: bullish RETEST of the neckline {{plot("Alert level")}} on {{ticker}} {{interval}}, close {{close}}.')
+alertcondition(evInv, "Pattern invalidated or expired", 'PACT Twin Peaks: a developing pattern was invalidated or expired on {{ticker}} {{interval}}.')

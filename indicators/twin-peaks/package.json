@@ -1,0 +1,11 @@
+{
+  "name": "twin-peaks",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "twin-peaks.js",
+  "scripts": {
+    "test": "node --test",
+    "scan": "node scan.js"
+  }
+}

@@ -36,6 +36,12 @@ The rebuilt New Signal form (channel, direction, pair, entry or zone, TP1 to TP6
 
 ➡️ See [`trade-room-signals/README.md`](trade-room-signals/README.md) for install steps, or paste [`trade-room-signals/LOVABLE_PROMPT.md`](trade-room-signals/LOVABLE_PROMPT.md) into Lovable.
 
+## PACT | Twin Peaks
+
+A TradingView indicator for double tops and double bottoms. Patterns move from developing to confirmed, with the neckline, BUY/SELL on the breakout, retests, reference stops and targets, and alerts.
+
+➡️ See [`indicators/twin-peaks/README.md`](indicators/twin-peaks/README.md) to add it to TradingView.
+
 ## Onboarding app
 
 The PACT web app (Next.js + Supabase) is in `apps/web`, with shared logic in `packages/core`.
