@@ -89,7 +89,7 @@ ssmtUp    = input.bool(true, "Also run SSMT on the cycle above", group = G_SMT, 
 smtRemove = input.bool(true, "Remove an SMT if every symbol ends up agreeing later in the quarter", group = G_SMT)
 
 G_BIAS = "Trend bias (buys or sells)"
-showBias  = input.bool(true, "Show bias panel", group = G_BIAS, tooltip = "Scores four things (+1 bullish, -1 bearish each) and shows whether to look for buys or sells:\n1. Price above or below the true open of the next cycle up (e.g. the session true open on 5m)\n2. Price above or below the true open of the cycle above that (e.g. TDO on 5m)\n3. Quarter structure: the last finished quarter made a higher high and higher low (or lower high and lower low) than the one before\n4. An SMT from this quarter or the one just finished (older SMTs are ignored)\nBullish at +2 or more, bearish at -2 or less, otherwise neutral (wait).")
+showBias  = input.bool(true, "Show bias panel", group = G_BIAS, tooltip = "Scores five things (+1 bullish, -1 bearish each) and shows whether to look for buys or sells:\n1. Price above or below the true open of the next cycle up (e.g. the session true open on 5m)\n2. Price above or below the true open of the cycle above that (e.g. TDO on 5m)\n3. Quarter structure: the last finished quarter made a higher high and higher low (or lower high and lower low) than the one before\n4. An SSMT on the chart cycle from this quarter or the one just finished (older ones are ignored)\n5. An SSMT on the cycle above from its current or last quarter\nBullish at +2 or more, bearish at -2 or less, otherwise neutral (wait).")
 biasBg    = input.bool(false, "Tint chart background by bias", group = G_BIAS)
 biasMarks = input.bool(false, "Mark every bias change on the chart", group = G_BIAS, tooltip = "Off by default: the bias can flip often. Use the setups below for trade ideas.")
 showSetups = input.bool(true, "Show high-probability setups (BUY / SELL)", group = G_BIAS, tooltip = "A setup needs ALL of these:\n1. A fresh SSMT in the trade direction (chart cycle or the cycle above)\n2. Price on the same side of BOTH true opens (below both for sells, above both for buys)\n3. Quarter structure not against the trade\n4. Confirmation: a candle CLOSES beyond the SSMT candle (below its low for sells, above its high for buys) within the bars allowed below\n5. At most one setup per quarter of the cycle above (per 90 minutes on 5m)\nIf the SSMT is cancelled or the true opens stop agreeing before confirmation, nothing is shown.")
@@ -693,7 +693,16 @@ int  smtQn    = smtDir == -1 ? sm.bearEvQn : smtDir == 1 ? sm.bullEvQn : na
 int  smtAge   = na(smtQn) ? 99 : sm.qn - smtQn
 bool smtFresh = smtAge <= 1
 int  s3       = showSMT and smtFresh ? smtDir : 0
-int  score    = s1 + s2 + s3 + s4
+// Same for the SSMT on the cycle above (its quarters are longer, so "fresh" covers more time)
+bool hasBearU = not na(smUp.bearEvT)
+bool hasBullU = not na(smUp.bullEvT)
+int  upDir    = hasBearU and (not hasBullU or smUp.bearEvT > smUp.bullEvT) ? -1 : hasBullU ? 1 : 0
+int  upQn     = upDir == -1 ? smUp.bearEvQn : upDir == 1 ? smUp.bullEvQn : na
+int  upAge    = na(upQn) ? 99 : smUp.qn - upQn
+bool upFresh  = upAge <= 1
+bool upOn     = showSMT and ssmtUp and not na(pcId)
+int  s5       = upOn and upFresh ? upDir : 0
+int  score    = s1 + s2 + s3 + s4 + s5
 int bias    = score >= 2 ? 1 : score <= -2 ? -1 : 0
 
 bgcolor(showBias and biasBg ? (bias == 1 ? color.new(biasBullC, 92) : bias == -1 ? color.new(biasBearC, 92) : na) : na)
@@ -754,7 +763,7 @@ if showSetups and not na(chartKey)
 alertcondition(sellSetup, "SELL setup", "Quarterly Theory SELL setup on {{ticker}}")
 alertcondition(buySetup, "BUY setup", "Quarterly Theory BUY setup on {{ticker}}")
 
-var table biasTbl = table.new(position.top_right, 2, 6, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1)
+var table biasTbl = table.new(position.top_right, 2, 7, bgcolor = color.new(color.black, 15), border_color = color.new(color.gray, 60), border_width = 1)
 
 sideTxt(int sd) =>
     sd == 1 ? "price above" : sd == -1 ? "price below" : "not set yet"
@@ -775,5 +784,9 @@ if barstate.islast and showBias
     string smtTxt = not showSMT ? "off" : smtDir == 0 ? "none" : (smtDir == 1 ? "bullish" : "bearish") + smtAgeTxt
     table.cell(biasTbl, 0, 4, "Latest SSMT", text_color = color.silver, text_size = size.small)
     table.cell(biasTbl, 1, 4, smtTxt, text_color = sideCol(s3), text_size = size.small)
-    table.cell(biasTbl, 0, 5, "Score", text_color = color.silver, text_size = size.small)
-    table.cell(biasTbl, 1, 5, (score > 0 ? "+" : "") + str.tostring(score) + " of 4 (needs +/-2)", text_color = bCol, text_size = size.small)
+    string upAgeTxt = upAge == 0 ? " (this quarter)" : upAge == 1 ? " (last quarter)" : " (" + str.tostring(upAge) + " quarters ago, ignored)"
+    string upTxt = not upOn ? "off" : upDir == 0 ? "none" : (upDir == 1 ? "bullish" : "bearish") + upAgeTxt
+    table.cell(biasTbl, 0, 5, "Latest " + (na(pcId) ? "SSMT above" : pcTag), text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 5, upTxt, text_color = sideCol(s5), text_size = size.small)
+    table.cell(biasTbl, 0, 6, "Score", text_color = color.silver, text_size = size.small)
+    table.cell(biasTbl, 1, 6, (score > 0 ? "+" : "") + str.tostring(score) + " of 5 (needs +/-2)", text_color = bCol, text_size = size.small)

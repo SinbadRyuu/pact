@@ -25,11 +25,12 @@ All times are New York time. The trading day starts at 18:00.
   Tick **Invert** for inverse pairs such as DXY. There are "Bearish SMT" and "Bullish SMT" alert conditions.
 
 - **SSMT on the cycle above**: the same check also runs one cycle up, drawn as thicker dashed lines and labelled with the quarter size. On 5m that's "SSMT 90m" (the session's 90-minute quarters), on 15m "SSMT 6H" (the daily sessions), on 1H "SSMT Day", on 4H "SSMT Week" and on 1D "SSMT Qtr". It has its own alerts and can be turned off.
-- **Trend bias (buys or sells)**: a panel in the top-right corner says BULLISH (look for buys), BEARISH (look for sells) or NEUTRAL (wait). It scores four things, +1 bullish or -1 bearish each:
+- **Trend bias (buys or sells)**: a panel in the top-right corner says BULLISH (look for buys), BEARISH (look for sells) or NEUTRAL (wait). It scores five things, +1 bullish or -1 bearish each:
   1. Price above or below the true open of the next cycle up (on 5m: the session true open)
   2. Price above or below the true open of the cycle above that (on 5m: TDO)
   3. Quarter structure: the last finished quarter made a higher high and higher low, or a lower high and lower low, than the one before
-  4. An SMT from this quarter or the one just finished. Older SMTs are ignored.
+  4. An SSMT on the chart cycle from this quarter or the one just finished. Older ones are ignored.
+  5. An SSMT on the cycle above (e.g. SSMT 90m on 5m) from its current or last quarter.
 
   A score of +2 or more is bullish and -2 or less is bearish. Every bias change can be marked BUYS / SELLS on the chart (off by default), and there are "Bias turned bullish" and "Bias turned bearish" alerts. The background tint is optional.
 
